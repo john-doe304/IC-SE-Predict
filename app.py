@@ -1,32 +1,89 @@
 import streamlit as st
+from rdkit import Chem
+from rdkit.Chem import Descriptors, AllChem
+from rdkit.Chem.Draw import MolDraw2DSVG
+from rdkit.ML.Descriptors import MoleculeDescriptors
+from mordred import Calculator, descriptors
 import pandas as pd
+from autogluon.tabular import TabularPredictor
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-import os
-import sys
+import gc
+import re
+import traceback
 
-# 添加utils路径
-sys.path.append(os.path.join(os.path.dirname(__file__), 'utils'))
-
-# 设置页面
-st.set_page_config(
-    page_title="IC-SE Predict - 固态离子电导率预测平台",
-    page_icon="",
-    layout="wide"
+# ---------------- 页面样式 ----------------
+st.markdown(
+    """
+    <style>
+    .stApp {
+        border: 2px solid #808080;
+        border-radius: 20px;
+        margin: 50px auto;
+        max-width: 40%;
+        background-color: #f9f9f9f9;
+        padding: 20px;
+        box-sizing: border-box;
+    }
+    .rounded-container h2 {
+        margin-top: -80px;
+        text-align: center;
+        background-color: #e0e0e0e0;
+        padding: 10px;
+        border-radius: 10px;
+    }
+    .rounded-container blockquote {
+        text-align: left;
+        margin: 20px auto;
+        background-color: #f0f0f0;
+        padding: 10px;
+        font-size: 1.1em;
+        border-radius: 10px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
-# 标题
-st.title("?? IC-SE Predict - 固态离子电导率预测平台")
-st.markdown("基于机器学习的固态电解质离子电导率预测系统")
+# ---------------- 页面标题 ----------------
+st.markdown(
+    """
+    <div class='rounded-container'>
+        <h2 style="font-size:24px;">Predict Heat Capacity (Cp) of Organic Molecules</h2>
+        <blockquote>
+            1. This web app predicts the heat capacity (Cp) of organic molecules based on their SMILES structure using trained machine learning model.<br>
+            2. Enter a valid SMILES string below to get the predicted result.
+        </blockquote>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+# ---------------- 模型路径与特征定义 ----------------
+MODEL-PATHS = {"./autogluon/"}
 
-# 侧边栏导航
-st.sidebar.header("导航菜单")
-page = st.sidebar.selectbox(
-    "选择功能",
-    ["数据预览", "材料特征提取", "数据预处理", "特征选择", "模型训练", "模型预测", "SHAP分析"]
+FEATURE_SETS = {['MagpieData mean CovalentRadius',
+ 'Temp',
+ 'MagpieData avg_dev SpaceGroupNumber',
+ '0-norm',
+ 'MagpieData mean MeltingT',
+ 'MagpieData avg_dev Column',
+ 'MagpieData mean NValence']}
+ 
+ ESSENTIAL_MODELS = {'CatBoost', 'ExtraTreesMSE', 'LightGBM', 'KNeighborsDist', 'XGBoost', 'WeightedEnsemble_L2'}
+ 
+ # ---------------- 用户输入 ----------------
+chemical_foemula = st.text_input(
+    "Enter the chemical formula of the molecule:",
+    placeholder="e.g., Li10GeP2S12 or Li10SiP2S12",
 )
 
+submit_button = st.button("Submit and Predict")
+
+# ---------------- 模型加载 ----------------
+@st.cache_resource(show_spinner=False)
+def load_predictor(model_path):
+    """根据物态加载 AutoGluon 模型"""
+    return TabularPredictor.load(model_path)
+	
 # 数据管理
 @st.cache_data
 def load_sample_data():
