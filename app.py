@@ -387,21 +387,7 @@ if page == "Home":
                                 st.warning(f"Model {model} prediction failed: {str(model_error)}")
                                 predictions_dict[model] = "Error"
                                 
-                                # 显示预测结果
-                                st.subheader("Prediction Results")
-                                
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    st.metric(
-                                        "Predicted log(σ) [S/cm]", 
-                                        f"{example_predictions['log_conductivity']:.3f}"
-                                    )
-                                with col2:
-                                    st.metric(
-                                        "Predicted σ [S/cm]", 
-                                        f"{example_predictions['conductivity_S_cm']:.6f}"
-                                    )
-                                
+                         
                                 # 显示置信区间
                                 st.info(
                                     f"Prediction confidence interval: "
@@ -431,10 +417,14 @@ if page == "Home":
                                     unsafe_allow_html=True
                                 )
                                 
+								# 主动释放内存
+                                del predictor
+                                gc.collect()
+								
                     except Exception as e:
                         st.error(f"Prediction failed: {str(e)}")
-                        else:
-                            st.warning("Model not available. Using example predictions.")
+                else:
+                    st.warning("Model not available. Using example predictions.")
                             
                             # 显示示例结果
                             st.subheader("Example Prediction Results")
