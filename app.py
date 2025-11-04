@@ -431,8 +431,8 @@ if page == "Home":
                                     unsafe_allow_html=True
                                 )
                                 
-                            except Exception as e:
-                                st.error(f"Prediction failed: {str(e)}")
+                    except Exception as e:
+                        st.error(f"Prediction failed: {str(e)}")
                         else:
                             st.warning("Model not available. Using example predictions.")
                             
@@ -447,10 +447,9 @@ if page == "Home":
                             del predictor
                             gc.collect()
 
-                    except Exception as e:
-                        st.error(f"Model loading failed: {str(e)}")
                 except Exception as e:
-                    st.error(f"An error occurred: {str(e)}")
+                    st.error(f"Model loading failed: {str(e)}")
+              
 
 # 数据预览页面
 elif page == "Data Preview":
