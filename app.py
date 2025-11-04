@@ -223,54 +223,33 @@ def calculate_material_features(formula):
         
         features = {'Formula': formula}
 		
-		try:
+		
             # 1. 元素属性特征 (Magpie)
             ep_featurizer = ElementProperty.from_preset('magpie')
             df = ep_featurizer.featurize_dataframe(df, 'composition', ignore_errors=True)
-        except Exception as e:
-            st.warning(f"Element property features failed: {e}")
         
-        try:
+        
+        
             # 2. Meredig特征
             meredig_featurizer = Meredig()
             df = meredig_featurizer.featurize_dataframe(df, 'composition', ignore_errors=True)
-        except Exception as e:
-            st.warning(f"Meredig features failed: {e}")
         
-        try:
+        
+       
             # 3. 化学计量特征
             stoichiometry_featurizer = Stoichiometry()
             df = stoichiometry_featurizer.featurize_dataframe(df, 'composition', ignore_errors=True)
-        except Exception as e:
-            st.warning(f"Stoichiometry features failed: {e}")
         
-        try:
+        
+      
             # 4. 离子特性特征需要先转换氧化态
             cto = CompositionToOxidComposition()
             df = cto.featurize_dataframe(df, 'composition', ignore_errors=True)
             
             ion_featurizer = IonProperty()
             df = ion_featurizer.featurize_dataframe(df, 'composition_oxid', ignore_errors=True)
-        except Exception as e:
-            st.warning(f"Ion property features failed: {e}")
-		
- try:
-            # 3. 化学计量特征
-            stoichiometry_featurizer = Stoichiometry()
-            df = stoichiometry_featurizer.featurize_dataframe(df, 'composition', ignore_errors=True)
-        except Exception as e:
-            st.warning(f"Stoichiometry features failed: {e}")
         
-        try:
-            # 4. 离子特性特征需要先转换氧化态
-            cto = CompositionToOxidComposition()
-            df = cto.featurize_dataframe(df, 'composition', ignore_errors=True)
-            
-            ion_featurizer = IonProperty()
-            df = ion_featurizer.featurize_dataframe(df, 'composition_oxid', ignore_errors=True)
-        except Exception as e:
-            st.warning(f"Ion property features failed: {e}")
-        
+
         # 提取数值特征
         numeric_columns = df.select_dtypes(include=[np.number]).columns
         for col in numeric_columns:
@@ -282,6 +261,11 @@ def calculate_material_features(formula):
         features.update(basic_features)
         
         return features
+
+	except Exception as e:
+        st.error(f"Advanced feature calculation failed: {e}")
+        # 如果高级特征计算失败，返回基本特征
+        return calculate_basic_features(formula)
 
 def calculate_basic_features(formula):
     """Calculate basic material features when advanced libraries are not available"""
