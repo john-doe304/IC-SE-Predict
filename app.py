@@ -365,27 +365,27 @@ if page == "Home":
                     # 加载模型并预测
                     predictor = load_predictor()
                     # 加载模型并预测
-                try:
-                    # 使用缓存的模型加载方式
-                    predictor = load_predictor()
+                    try:
+                        # 使用缓存的模型加载方式
+                        predictor = load_predictor()
                     
-                    # 只使用最关键的模型进行预测，减少内存占用
-                    essential_models = ['CatBoost',
-                                         'LightGBM',
-                                         'LightGBMLarge',
-                                         'RandomForestMSE',
-                                         'WeightedEnsemble_L2',
-                                         'XGBoost']
-                    predict_df_1 = pd.concat([predict_df,predict_df],axis=0)
-                    predictions_dict = {}
+                        # 只使用最关键的模型进行预测，减少内存占用
+                        essential_models = ['CatBoost',
+                                            'LightGBM',
+                                            'LightGBMLarge',
+                                            'RandomForestMSE',
+                                            'WeightedEnsemble_L2',
+                                            'XGBoost']
+                        predict_df_1 = pd.concat([predict_df,predict_df],axis=0)
+                        predictions_dict = {}
                     
-                    for model in essential_models:
-                        try:
-                            predictions = predictor.predict(predict_df_1, model=model)
-                            predictions_dict[model] = predictions.astype(int).apply(lambda x: f"{x} nm")
-                        except Exception as model_error:
-                            st.warning(f"Model {model} prediction failed: {str(model_error)}")
-                            predictions_dict[model] = "Error"
+                        for model in essential_models:
+                            try:
+                                predictions = predictor.predict(predict_df_1, model=model)
+                                predictions_dict[model] = predictions.astype(int).apply(lambda x: f"{x} nm")
+                            except Exception as model_error:
+                                st.warning(f"Model {model} prediction failed: {str(model_error)}")
+                                predictions_dict[model] = "Error"
                                 
                                 # 显示预测结果
                                 st.subheader("Prediction Results")
@@ -443,7 +443,12 @@ if page == "Home":
                                 st.metric("Predicted log(σ) [S/cm]", "-3.2")
                             with col2:
                                 st.metric("Predicted σ [S/cm]", "0.000631")
+                            # 主动释放内存
+                            del predictor
+                            gc.collect()
 
+                    except Exception as e:
+                        st.error(f"Model loading failed: {str(e)}")
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
 
