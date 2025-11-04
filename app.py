@@ -361,20 +361,31 @@ if page == "Home":
                         # 显示输入数据
                         st.write("Input Data for Prediction:")
                         st.dataframe(input_df)
-
-                        # 加载模型并预测
-                        predictor = load_predictor()
-                        
-                        if predictor is not None:
-                            try:
-                                # 这里进行实际的预测
-                                # predictions = predictor.predict(input_df)
-                                
-                                # 示例预测结果
-                                example_predictions = {
-                                    'log_conductivity': -3.2 + np.random.uniform(-0.5, 0.5),
-                                    'conductivity_S_cm': 10**(-3.2 + np.random.uniform(-0.5, 0.5))
-                                }
+						
+                    # 加载模型并预测
+                    predictor = load_predictor()
+                    # 加载模型并预测
+                try:
+                    # 使用缓存的模型加载方式
+                    predictor = load_predictor()
+                    
+                    # 只使用最关键的模型进行预测，减少内存占用
+                    essential_models = ['CatBoost',
+                                         'LightGBM',
+                                         'LightGBMLarge',
+                                         'RandomForestMSE',
+                                         'WeightedEnsemble_L2',
+                                         'XGBoost']
+                    predict_df_1 = pd.concat([predict_df,predict_df],axis=0)
+                    predictions_dict = {}
+                    
+                    for model in essential_models:
+                        try:
+                            predictions = predictor.predict(predict_df_1, model=model)
+                            predictions_dict[model] = predictions.astype(int).apply(lambda x: f"{x} nm")
+                        except Exception as model_error:
+                            st.warning(f"Model {model} prediction failed: {str(model_error)}")
+                            predictions_dict[model] = "Error"
                                 
                                 # 显示预测结果
                                 st.subheader("Prediction Results")
