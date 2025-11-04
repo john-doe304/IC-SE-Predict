@@ -1,17 +1,23 @@
 import streamlit as st
 from rdkit import Chem
-from rdkit.Chem import Descriptors, AllChem
+from rdkit.Chem import Descriptors, Draw, AllChem
 from rdkit.Chem.Draw import MolDraw2DSVG
 from rdkit.ML.Descriptors import MoleculeDescriptors
 from mordred import Calculator, descriptors
+from mordred import Calculator, descriptors
 import pandas as pd
 from autogluon.tabular import TabularPredictor
+import tempfile
+import base64
+from io import BytesIO
+from autogluon.tabular import FeatureMetadata
+import gc  # æ·»åŠ åƒåœ¾å›æ”¶æ¨¡å—
+import re  # æ·»åŠ æ­£åˆ™è¡¨è¾¾å¼æ¨¡å—ç”¨äºå¤„ç†SVG
+from tqdm import tqdm 
 import numpy as np
-import gc
-import re
-import traceback
 
-# ---------------- Ò³ÃæÑùÊ½ ----------------
+
+# æ·»åŠ  CSS æ ·å¼
 st.markdown(
     """
     <style>
@@ -19,9 +25,9 @@ st.markdown(
         border: 2px solid #808080;
         border-radius: 20px;
         margin: 50px auto;
-        max-width: 40%;
+        max-width: 39%; /* è®¾ç½®æœ€å¤§å®½åº¦ */
         background-color: #f9f9f9f9;
-        padding: 20px;
+        padding: 20px; /* å¢åŠ å†…è¾¹è· */
         box-sizing: border-box;
     }
     .rounded-container h2 {
@@ -39,320 +45,378 @@ st.markdown(
         font-size: 1.1em;
         border-radius: 10px;
     }
+    a {
+        color: #0000EE;
+        text-decoration: underline;
+    }
+    .process-text, .molecular-weight {
+        font-family: Arial, sans-serif;
+        font-size: 16px;
+        color: #333;
+    }
+    .stDataFrame {
+        margin-top: 10px;
+        margin-bottom: 0px !important;
+    }
+    .molecule-container {
+        display: block;
+        margin: 20px auto;
+        max-width: 300px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        padding: 5px;
+        background-color: transparent; /* é€æ˜èƒŒæ™¯ */
+    }
+     /* é’ˆå¯¹å°å±å¹•çš„ä¼˜åŒ– */
+    @media (max-width: 768px) {
+        .rounded-container {
+            padding: 10px; /* å‡å°‘å†…è¾¹è· */
+        }
+        .rounded-container blockquote {
+            font-size: 0.9em; /* ç¼©å°å­—ä½“ */
+        }
+        .rounded-container h2 {
+            font-size: 1.2em; /* è°ƒæ•´æ ‡é¢˜å­—ä½“å¤§å° */
+        }
+        .stApp {
+            padding: 1px !important; /* å‡å°‘å†…è¾¹è· */
+            max-width: 99%; /* è®¾ç½®æœ€å¤§å®½åº¦ */
+        }
+        .process-text, .molecular-weight {
+            font-size: 0.9em; /* ç¼©å°æ–‡æœ¬å­—ä½“ */
+        }
+        .molecule-container {
+            max-width: 200px;
+        }
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# ---------------- Ò³Ãæ±êÌâ ----------------
+# é¡µé¢æ ‡é¢˜å’Œç®€ä»‹
 st.markdown(
     """
     <div class='rounded-container'>
-        <h2 style="font-size:24px;">Predict Heat Capacity (Cp) of Organic Molecules</h2>
+        <h2>Predict Organic Fluorescence <br>Emission Wavelengths</h2>
         <blockquote>
-            1. This web app predicts the heat capacity (Cp) of organic molecules based on their SMILES structure using trained machine learning model.<br>
-            2. Enter a valid SMILES string below to get the predicted result.
+            1. This website aims to quickly predict the emission wavelength of organic molecules based on their structure (SMILES) and solvent using machine learning models.<br>
+            2. Code and data are available at <a href='https://github.com/dqzs/Fluorescence-Emission-Wavelength-Prediction' target='_blank'>https://github.com/dqzs/Fluorescence-Emission-Wavelength-Prediction</a>.
         </blockquote>
     </div>
     """,
     unsafe_allow_html=True,
 )
-# ---------------- Ä£ĞÍÂ·¾¶ÓëÌØÕ÷¶¨Òå ----------------
-MODEL-PATHS = {"./autogluon/"}
 
-FEATURE_SETS = {['MagpieData mean CovalentRadius',
+# ææ–™ä½“ç³»é€‰æ‹©
+material_systems = {
+    "LLZO": {"Type": "Garnet", "Typical Composition": "Li7La3Zr2O12", "Temperature Range": "25-500Â°C"},
+    "LGPS": {"Type": "Sulfide", "Typical Composition": "Li10GeP2S12", "Temperature Range": "25-300Â°C"},
+    "NASICON": {"Type": "NASICON", "Typical Composition": "Li1+xAlxTi2-x(PO4)3", "Temperature Range": "25-400Â°C"},
+    "Perovskite": {"Type": "Perovskite", "Typical Composition": "Li3xLa2/3-xTiO3", "Temperature Range": "25-600Â°C"},
+    "Anti-Perovskite": {"Type": "Anti-Perovskite", "Typical Composition": "Li3OCl", "Temperature Range": "25-300Â°C"},
+    "Sulfide": {"Type": "Sulfide Glass", "Typical Composition": "Li2S-P2S5", "Temperature Range": "25-200Â°C"},
+    "Polymer": {"Type": "Polymer", "Typical Composition": "PEO-LiTFSI", "Temperature Range": "40-100Â°C"},
+    "Halide": {"Type": "Halide", "Typical Composition": "Li3YCl6", "Temperature Range": "25-300Â°C"}
+}
+
+# ææ–™ä½“ç³»é€‰æ‹©ä¸‹æ‹‰èœå•
+material_system = st.selectbox("Select Material type:", list(material_systems.keys()))
+
+# FORMULA è¾“å…¥åŒºåŸŸ
+foemula = st.text_input(
+    "Enter Chemical formula of the material:",
+    placeholder="e.g., Li10GeP2S12 or Li10SiP2S12",
+)
+
+# æ¸©åº¦è¾“å…¥
+temperature = st.number_input("Select Temperature:", min_value=200, max_value=1000, value=298, step=10)
+
+# æäº¤æŒ‰é’®
+submit_button = st.button("Submit and Predict", key="predict_button")
+
+# æŒ‡å®šçš„æè¿°ç¬¦åˆ—è¡¨ - å·²æ›´æ–°ä¸ºæ‰€éœ€çš„ç‰¹å¾
+required_descriptors = ['MagpieData mean CovalentRadius',
  'Temp',
  'MagpieData avg_dev SpaceGroupNumber',
  '0-norm',
  'MagpieData mean MeltingT',
  'MagpieData avg_dev Column',
- 'MagpieData mean NValence']}
- 
- ESSENTIAL_MODELS = {'CatBoost', 'ExtraTreesMSE', 'LightGBM', 'KNeighborsDist', 'XGBoost', 'WeightedEnsemble_L2'}
- 
- # ---------------- ÓÃ»§ÊäÈë ----------------
-chemical_foemula = st.text_input(
-    "Enter the chemical formula of the molecule:",
-    placeholder="e.g., Li10GeP2S12 or Li10SiP2S12",
-)
+ 'MagpieData mean NValence']
 
-submit_button = st.button("Submit and Predict")
+# ç¼“å­˜æ¨¡å‹åŠ è½½å™¨ä»¥é¿å…é‡å¤åŠ è½½
+@st.cache_resource(show_spinner=False, max_entries=1)  # é™åˆ¶åªç¼“å­˜ä¸€ä¸ªå®ä¾‹
+def load_predictor():
+    """ç¼“å­˜æ¨¡å‹åŠ è½½ï¼Œé¿å…é‡å¤åŠ è½½å¯¼è‡´å†…å­˜æº¢å‡º"""
+    return TabularPredictor.load("./ag-20251024_075719")
 
-# ---------------- Ä£ĞÍ¼ÓÔØ ----------------
-@st.cache_resource(show_spinner=False)
-def load_predictor(model_path):
-    """¸ù¾İÎïÌ¬¼ÓÔØ AutoGluon Ä£ĞÍ"""
-    return TabularPredictor.load(model_path)
+def mol_to_image(mol, size=(300, 300)):
+    """å°†åˆ†å­è½¬æ¢ä¸ºèƒŒæ™¯é¢œè‰²ä¸º #f9f9f9f9 çš„SVGå›¾åƒ"""
+    # åˆ›å»ºç»˜å›¾å¯¹è±¡
+    d2d = MolDraw2DSVG(size[0], size[1])
+    
+    # è·å–ç»˜å›¾é€‰é¡¹
+    draw_options = d2d.drawOptions()
+    
+    # è®¾ç½®èƒŒæ™¯é¢œè‰²ä¸º #f9f9f9f9
+    draw_options.background = '#f9f9f9'
+    
+    # ç§»é™¤æ‰€æœ‰è¾¹æ¡†å’Œå¡«å……
+    draw_options.padding = 0.0
+    draw_options.additionalBondPadding = 0.0
+    
+    # ç§»é™¤åŸå­æ ‡ç­¾çš„è¾¹æ¡†
+    draw_options.annotationFontScale = 1.0
+    draw_options.addAtomIndices = False
+    draw_options.addStereoAnnotation = False
+    draw_options.bondLineWidth = 1.5
+    
+    # ç¦ç”¨æ‰€æœ‰è¾¹æ¡†
+    draw_options.includeMetadata = False
+    
+    # ç»˜åˆ¶åˆ†å­
+    d2d.DrawMolecule(mol)
+    d2d.FinishDrawing()
+    
+    # è·å–SVGå†…å®¹
+    svg = d2d.GetDrawingText()
+    
+    # ç§»é™¤SVGä¸­æ‰€æœ‰å¯èƒ½å­˜åœ¨çš„è¾¹æ¡†å…ƒç´ 
+    # 1. ç§»é™¤é»‘è‰²è¾¹æ¡†çŸ©å½¢
+    svg = re.sub(r'<rect [^>]*stroke:black[^>]*>', '', svg, flags=re.DOTALL)
+    svg = re.sub(r'<rect [^>]*stroke:#000000[^>]*>', '', svg, flags=re.DOTALL)
+    
+    # 2. ç§»é™¤æ‰€æœ‰ç©ºçš„rectå…ƒç´ 
+    svg = re.sub(r'<rect[^>]*/>', '', svg, flags=re.DOTALL)
+    
+    # 3. ç¡®ä¿viewBoxæ­£ç¡®è®¾ç½®
+    if 'viewBox' in svg:
+        # è®¾ç½®æ–°çš„viewBoxä»¥ç§»é™¤è¾¹è·
+        svg = re.sub(r'viewBox="[^"]+"', f'viewBox="0 0 {size[0]} {size[1]}"', svg)
+    
+    return svg
+
 	
-# Êı¾İ¹ÜÀí
-@st.cache_data
-def load_sample_data():
-    """¼ÓÔØÊ¾ÀıÊı¾İ"""
+# ææ–™ç‰¹å¾è®¡ç®—å‡½æ•° 
+def calculate_material_features(formula):
+    """Calculate material features based on chemical formula using Magpie descriptors"""
     try:
-        # ÕâÀï¿ÉÒÔÌí¼ÓÊ¾ÀıÊı¾İ»ò´ÓÎÄ¼ş¼ÓÔØ
-        sample_data = pd.DataFrame({
-            'Formula': ['Li7La3Zr2O12', 'Li10GeP2S12', 'Na3PS4'],
-            'Cond': [0.001, 0.01, 0.0005],
-            'log_cond': [-3, -2, -3.3]
-        })
-        return sample_data
-    except Exception as e:
-        st.error(f"Êı¾İ¼ÓÔØÊ§°Ü: {e}")
-        return None
-
-if page == "Êı¾İÔ¤ÀÀ":
-    st.header("Êı¾İÔ¤ÀÀ")
-    
-    data = load_sample_data()
-    if data is not None:
-        st.subheader("Ê¾ÀıÊı¾İ")
-        st.dataframe(data)
+        # å°è¯•å¯¼å…¥æ‰€éœ€çš„åº“
+        try:
+            from pymatgen.core import Composition
+            from matminer.featurizers.composition import (
+                ElementProperty, Meredig, Stoichiometry, ValenceOrbital, IonProperty
+            )
+            from matminer.featurizers.conversions import StrToComposition, CompositionToOxidComposition
+        except ImportError as e:
+            st.warning(f"Some feature calculation libraries not available: {e}")
+            return calculate_basic_features(formula)
         
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Ñù±¾ÊıÁ¿", data.shape[0])
-        with col2:
-            st.metric("ÌØÕ÷ÊıÁ¿", data.shape[1] - 2)  # ¼õÈ¥Ä¿±ê±äÁ¿
-        with col3:
-            st.metric("Ä¿±ê±äÁ¿", "log_cond")
+        # åˆ›å»ºDataFrameç”¨äºç‰¹å¾è®¡ç®—
+        df = pd.DataFrame({'Formula': [formula]})
+        
+        # å°†å­—ç¬¦ä¸²è½¬æ¢ä¸ºcompositionå¯¹è±¡
+        stc = StrToComposition()
+        df = stc.featurize_dataframe(df, 'Formula', ignore_errors=True)
+        
+        if 'composition' not in df.columns:
+            st.error("Failed to convert formula to composition object")
+            return calculate_basic_features(formula)
+        
+        features = {'Formula': formula}
+		try:
+            # 1. å…ƒç´ å±æ€§ç‰¹å¾ (Magpie)
+            ep_featurizer = ElementProperty.from_preset('magpie')
+            df = ep_featurizer.featurize_dataframe(df, 'composition', ignore_errors=True)
+        except Exception as e:
+            st.warning(f"Element property features failed: {e}")
+        
+        try:
+            # 2. Meredigç‰¹å¾
+            meredig_featurizer = Meredig()
+            df = meredig_featurizer.featurize_dataframe(df, 'composition', ignore_errors=True)
+        except Exception as e:
+            st.warning(f"Meredig features failed: {e}")
+        
+        try:
+            # 3. åŒ–å­¦è®¡é‡ç‰¹å¾
+            stoichiometry_featurizer = Stoichiometry()
+            df = stoichiometry_featurizer.featurize_dataframe(df, 'composition', ignore_errors=True)
+        except Exception as e:
+            st.warning(f"Stoichiometry features failed: {e}")
+        
+        try:
+            # 4. ç¦»å­ç‰¹æ€§ç‰¹å¾éœ€è¦å…ˆè½¬æ¢æ°§åŒ–æ€
+            cto = CompositionToOxidComposition()
+            df = cto.featurize_dataframe(df, 'composition', ignore_errors=True)
             
-        # Êı¾İ·Ö²¼¿ÉÊÓ»¯
-        st.subheader("Ä¿±ê±äÁ¿·Ö²¼")
-        fig, ax = plt.subplots(figsize=(10, 6))
-        ax.hist(data['log_cond'], bins=10, alpha=0.7, color='skyblue')
-        ax.set_xlabel('log_cond Value')
-        ax.set_ylabel('Frequency')
-        ax.set_title('log_cond Value Distribution')
-        st.pyplot(fig)
+            ion_featurizer = IonProperty()
+            df = ion_featurizer.featurize_dataframe(df, 'composition_oxid', ignore_errors=True)
+        except Exception as e:
+            st.warning(f"Ion property features failed: {e}")
+		# æå–æ•°å€¼ç‰¹å¾
+        numeric_columns = df.select_dtypes(include=[np.number]).columns
+        for col in numeric_columns:
+            if col != 'Formula':  # è·³è¿‡éç‰¹å¾åˆ—
+                features[col] = df[col].iloc[0] if not pd.isna(df[col].iloc[0]) else 0.0
+        
+        # æ·»åŠ åŸºæœ¬ç‰¹å¾ä½œä¸ºåå¤‡
+        basic_features = calculate_basic_features(formula)
+        features.update(basic_features)
+        
+        return features
+        
+    except Exception as e:
+        st.error(f"Advanced feature calculation failed: {e}")
+        # å¦‚æœé«˜çº§ç‰¹å¾è®¡ç®—å¤±è´¥ï¼Œè¿”å›åŸºæœ¬ç‰¹å¾
+        return calculate_basic_features(formula)
+def calculate_basic_features(formula):
+    """Calculate basic material features when advanced libraries are not available"""
+    try:
+        # åŸºæœ¬ç‰¹å¾è®¡ç®—ï¼ˆä¸ä¾èµ–å¤–éƒ¨åº“ï¼‰
+        elements = []
+        current_element = ""
+        
+        # ç®€å•çš„åŒ–å­¦å¼è§£æ
+        for char in formula:
+            if char.isupper():
+                if current_element:
+                    elements.append(current_element)
+                current_element = char
+            elif char.islower():
+                current_element += char
+            elif char.isdigit():
+                # å¤„ç†æ•°å­—ï¼ˆè¿™é‡Œç®€åŒ–å¤„ç†ï¼‰
+                continue
+        
+        if current_element:
+            elements.append(current_element)
+        
+        unique_elements = set(elements)
+		
+		features = {
+            'Formula': formula,
+            'Element_Count': len(unique_elements),
+            'Formula_Length': len(formula),
+            'Li_Content': formula.count('Li'),
+            'O_Content': formula.count('O'),
+            'S_Content': formula.count('S'),
+            'Cl_Content': formula.count('Cl'),
+            'P_Content': formula.count('P'),
+            'La_Content': formula.count('La'),
+            'Zr_Content': formula.count('Zr'),
+            'Ge_Content': formula.count('Ge'),
+            'Y_Content': formula.count('Y'),
+            'Has_Li': 1 if 'Li' in formula else 0,
+            'Has_O': 1 if 'O' in formula else 0,
+            'Has_S': 1 if 'S' in formula else 0,
+            'Has_Cl': 1 if 'Cl' in formula else 0,
+        }
+		return features
+        
+    except Exception as e:
+        st.error(f"Basic feature calculation failed: {e}")
+        return {'Formula': formula, 'Error': str(e)}
 
-elif page == "²ÄÁÏÌØÕ÷ÌáÈ¡":
-    st.header("²ÄÁÏÌØÕ÷ÌáÈ¡")
-    
-    st.subheader("MagpieÌØÕ÷ÌáÈ¡")
-    
-    uploaded_file = st.file_uploader("ÉÏ´«ExcelÊı¾İÎÄ¼ş", type=['xlsx'])
-    
-    if uploaded_file is not None:
-        # ±£´æÉÏ´«µÄÎÄ¼ş
-        os.makedirs('data', exist_ok=True)
-        file_path = os.path.join("data", uploaded_file.name)
-        with open(file_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
+def filter_features(features_df, nan_threshold=0.4):
+    """Filter features based on NaN ratio"""
+    try:
+        # åˆ é™¤ç¼ºå¤±å€¼æ¯”ä¾‹å¤ªé«˜çš„åˆ—
+        nan_ratio = features_df.isnull().sum() / features_df.shape[0]
+        data_filtered = features_df.loc[:, nan_ratio < nan_threshold]
         
-        st.success(f"ÎÄ¼ş {uploaded_file.name} ÉÏ´«³É¹¦£¡")
+        # å¡«å……å‰©ä½™çš„NaNå€¼
+        data_filtered = data_filtered.fillna(0)
         
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if st.button("Ö´ĞĞÌØÕ÷ÌáÈ¡"):
-                with st.spinner("ÌØÕ÷ÌáÈ¡ÖĞ..."):
-                    try:
-                        from utils.Material_Features import MaterialFeatureExtractor
-                        extractor = MaterialFeatureExtractor()
-                        df_processed = extractor.load_and_process_data(file_path)
-                        
-                        if df_processed is not None:
-                            df_with_features = extractor.extract_all_features(df_processed)
-                            df_filtered = extractor.filter_features(df_with_features)
-                            
-                            st.success("ÌØÕ÷ÌáÈ¡Íê³É£¡")
-                            
-                            # ÏÔÊ¾½á¹û
-                            st.subheader("ÌáÈ¡µÄÌØÕ÷Êı¾İ")
-                            st.dataframe(df_filtered.head())
-                            
-                            st.subheader("Êı¾İÍ³¼Æ")
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                st.metric("×ÜÌØÕ÷Êı", df_filtered.shape[1])
-                            with col2:
-                                st.metric("Ñù±¾ÊıÁ¿", df_filtered.shape[0])
-                            with col3:
-                                numeric_count = df_filtered.select_dtypes(include=[np.number]).shape[1]
-                                st.metric("ÊıÖµÌØÕ÷", numeric_count)
-                            
-                            # ÏÂÔØ¹¦ÄÜ
-                            csv = df_filtered.to_csv(index=False)
-                            st.download_button(
-                                "ÏÂÔØÌØÕ÷Êı¾İ(CSV)",
-                                csv,
-                                "material_features.csv",
-                                "text/csv"
-                            )
-                            
-                    except Exception as e:
-                        st.error(f"ÌØÕ÷ÌáÈ¡Ê§°Ü: {e}")
-        
-        with col2:
-            if st.button("±£´æÌØÕ÷Êı¾İ"):
-                with st.spinner("±£´æÊı¾İÖĞ..."):
-                    try:
-                        from utils.Material_Features import MaterialFeatureExtractor
-                        extractor = MaterialFeatureExtractor()
-                        df_processed = extractor.load_and_process_data(file_path)
-                        
-                        if df_processed is not None:
-                            df_with_features = extractor.extract_all_features(df_processed)
-                            df_filtered = extractor.filter_features(df_with_features)
-                            
-                            # ±£´æµ½ÎÄ¼ş
-                            output_path = extractor.save_features(df_filtered, "Magpie-data-features.xlsx")
-                            st.success(f"ÌØÕ÷Êı¾İÒÑ±£´æµ½: {output_path}")
-                            
-                    except Exception as e:
-                        st.error(f"±£´æÊ§°Ü: {e}")
+        return data_filtered
+    except Exception as e:
+        st.error(f"Feature filtering failed: {e}")
+        return features_df.fillna(0)
+		
+
+# å¦‚æœç‚¹å‡»æäº¤æŒ‰é’®
+if submit_button:
+    if not formula_input:
+        st.error("Please enter a valid chemical formula.")
     else:
-        st.info("ÇëÉÏ´«°üº¬»¯Ñ§Ê½µÄExcelÎÄ¼ş")
-        
-        # ÏÔÊ¾Ê¾ÀıÊı¾İ¸ñÊ½
-        st.subheader("Ê¾ÀıÊı¾İ¸ñÊ½ÒªÇó")
-        example_format = pd.DataFrame({
-            'Formula': ['Li7La3Zr2O12', 'Na3PS4', 'Li10GeP2S12'],
-            'Cond': [0.001, 0.0005, 0.01],
-            'log_cond': [-3, -3.3, -2],
-            'Temperature': [298, 300, 295]
-        })
-        st.dataframe(example_format)
-        st.caption("×¢: ±ØĞë°üº¬'Formula'ÁĞ×÷Îª»¯Ñ§Ê½ÊäÈë")
-
-elif page == "Êı¾İÔ¤´¦Àí":
-    st.header("Êı¾İÔ¤´¦Àí")
-    
-    st.subheader("Êı¾İÇåÏ´ºÍÔ¤´¦Àí")
-    st.info("""
-    Êı¾İÔ¤´¦Àí¹¦ÄÜ°üÀ¨:
-    - È±Ê§Öµ´¦Àí
-    - Òì³£Öµ¼ì²â
-    - Êı¾İ±ê×¼»¯
-    - ÌØÕ÷Ïà¹ØĞÔ·ÖÎö
-    - Êı¾İ·Ö¸î
-    """)
-    
-    if st.button("ÔËĞĞÊı¾İÔ¤´¦Àí"):
-        st.warning("Êı¾İÔ¤´¦Àí¹¦ÄÜ´ıÍêÕû¼¯³É...")
-        # ÕâÀï¿ÉÒÔµ÷ÓÃÄúµÄ Data_Processing.py ¹¦ÄÜ
-
-elif page == "ÌØÕ÷Ñ¡Ôñ":
-    st.header("ÌØÕ÷Ñ¡Ôñ")
-    
-    st.subheader("×Ô¶¯ÌØÕ÷Ñ¡Ôñ")
-    st.info("""
-    ÌØÕ÷Ñ¡Ôñ¹¦ÄÜ°üÀ¨:
-    - »ùÓÚÖØÒªĞÔµÄÌØÕ÷ÅÅĞò
-    - µİ¹éÌØÕ÷Ïû³ı
-    - ÌØÕ÷ÊıÁ¿ÓÅ»¯
-    - ½»²æÑéÖ¤ÆÀ¹À
-    """)
-    
-    if st.button("ÔËĞĞÌØÕ÷Ñ¡Ôñ"):
-        st.warning("ÌØÕ÷Ñ¡Ôñ¹¦ÄÜ´ıÍêÕû¼¯³É...")
-        # ÕâÀï¿ÉÒÔµ÷ÓÃÄúµÄ Feature_Selection.py ¹¦ÄÜ
-
-elif page == "Ä£ĞÍÑµÁ·":
-    st.header("Ä£ĞÍÑµÁ·")
-    
-    st.subheader("AutoMLÄ£ĞÍÑµÁ·")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        test_size = st.slider("²âÊÔ¼¯±ÈÀı", 0.1, 0.5, 0.3)
-        time_limit = st.number_input("ÑµÁ·Ê±¼äÏŞÖÆ(Ãë)", 600, 3600, 600)
-    
-    with col2:
-        preset = st.selectbox("Ô¤ÉèÄ£Ê½", ["medium_quality", "high_quality", "best_quality"])
-        random_state = st.number_input("Ëæ»úÖÖ×Ó", 42)
-    
-    if st.button("¿ªÊ¼Ä£ĞÍÑµÁ·"):
-        with st.spinner("Ä£ĞÍÑµÁ·ÖĞ..."):
+        with st.spinner("Processing material and making predictions..."):
             try:
-                st.info("Ä£ĞÍÑµÁ·¹¦ÄÜ´ıÍêÕû¼¯³É...")
-                # ÕâÀï¿ÉÒÔµ÷ÓÃÄúµÄ Model_Train.py ¹¦ÄÜ
+                # æ˜¾ç¤ºææ–™ä¿¡æ¯
+                material_info = material_types[material_type]
                 
-                # Ä£ÄâÑµÁ·½á¹û
-                st.success("ÑµÁ·Íê³É£¡")
-                
-                # ÏÔÊ¾Ä£Äâ½á¹û
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.metric("×î¼ÑÄ£ĞÍ", "XGBoost")
+                    st.metric("Material Type", material_type)
                 with col2:
-                    st.metric("ÑµÁ·R2", "0.92")
+                    st.metric("Crystal Structure", material_info["Structure"])
                 with col3:
-                    st.metric("ÑéÖ¤R2", "0.88")
+                    st.metric("Temperature", f"{temperature} K")
+                
+                # è®¡ç®—ææ–™ç‰¹å¾
+                features = calculate_material_features(formula_input)
+                
+                if features:
+                    # æ˜¾ç¤ºç‰¹å¾ä¿¡æ¯
+                    st.subheader("Material Features")
+                    feature_df = pd.DataFrame([features])
+                
+				    # åˆ›å»ºè¾“å…¥æ•°æ®
+                    input_data = {
+                        "Formula": [formula_input],
+                        "Material_Type": [material_type],
+                        "Temperature_K": [temperature],
+                    }
+                     # æ·»åŠ æ•°å€¼ç‰¹å¾
+                    numeric_features = {['MagpieData mean CovalentRadius',
+                                        'Temp',
+                                        'MagpieData avg_dev SpaceGroupNumber',
+                                        '0-norm',
+                                        'MagpieData mean MeltingT',
+                                        'MagpieData avg_dev Column',
+                                        'MagpieData mean NValence']}
+                    input_data.update(numeric_features)
                     
-            except Exception as e:
-                st.error(f"ÑµÁ·Ê§°Ü: {e}")
-
-elif page == "Ä£ĞÍÔ¤²â":
-    st.header("Ä£ĞÍÔ¤²â")
-    
-    st.subheader("ÔÚÏßÔ¤²â")
-    
-    formula_input = st.text_input("ÊäÈë»¯Ñ§Ê½", "Li7La3Zr2O12")
-    temperature = st.number_input("ÎÂ¶È(K)", 298, 500, 298)
-    
-    if st.button("Ô¤²âÀë×Óµçµ¼ÂÊ"):
-        if formula_input:
-            with st.spinner("Ô¤²âÖĞ..."):
+                    input_df = pd.DataFrame(input_data)	
+					# æ˜¾ç¤ºè¾“å…¥æ•°æ®
+                    st.write("Input Data for Prediction:")
+                    st.dataframe(input_df)
+                    # åŠ è½½æ¨¡å‹å¹¶é¢„æµ‹
+                    predictor = load_predictor()
+					# åŠ è½½æ¨¡å‹å¹¶é¢„æµ‹
                 try:
-                    # Ä£ÄâÔ¤²â½á¹û
-                    prediction_log = -2.5 + np.random.uniform(-0.5, 0.5)
-                    prediction_cond = 10 ** prediction_log
+                    # ä½¿ç”¨ç¼“å­˜çš„æ¨¡å‹åŠ è½½æ–¹å¼
+                    predictor = load_predictor()
                     
-                    st.success("Ô¤²âÍê³É£¡")
+                    # åªä½¿ç”¨æœ€å…³é”®çš„æ¨¡å‹è¿›è¡Œé¢„æµ‹ï¼Œå‡å°‘å†…å­˜å ç”¨
+                    essential_models = ['CatBoost',
+                                         'LightGBM',
+                                         'LightGBMLarge',
+                                         'RandomForestMSE',
+                                         'WeightedEnsemble_L2',
+                                         'XGBoost']
+                    predict_df_1 = pd.concat([predict_df,predict_df],axis=0)
+                    predictions_dict = {}
                     
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("log_condÔ¤²âÖµ", f"{prediction_log:.3f}")
-                    with col2:
-                        st.metric("µçµ¼ÂÊÔ¤²âÖµ", f"{prediction_cond:.6f} S/cm")
-                        
-                    # ÏÔÊ¾ÖÃĞÅÇø¼ä
-                    st.info(f"Ô¤²âÖÃĞÅÇø¼ä: log_cond = {prediction_log-0.2:.3f} ~ {prediction_log+0.2:.3f}")
+                    for model in essential_models:
+                        try:
+                            predictions = predictor.predict(predict_df_1, model=model)
+                            predictions_dict[model] = predictions.astype(int).apply(lambda x: f"{x} nm")
+                        except Exception as model_error:
+                            st.warning(f"Model {model} prediction failed: {str(model_error)}")
+                            predictions_dict[model] = "Error"     
+					# æ˜¾ç¤ºé¢„æµ‹ç»“æœ
+                    st.write("Prediction Results (Essential Models):")
+                    st.markdown(
+                        "**Note:** WeightedEnsemble_L2 is a meta-model combining predictions from other models.")
+                    results_df = pd.DataFrame(predictions_dict)
+                    st.dataframe(results_df.iloc[:1,:])
                     
+                    # ä¸»åŠ¨é‡Šæ”¾å†…å­˜
+                    del predictor
+                    gc.collect()
+
                 except Exception as e:
-                    st.error(f"Ô¤²âÊ§°Ü: {e}")
-        else:
-            st.warning("ÇëÊäÈë»¯Ñ§Ê½")
+                    st.error(f"Model loading failed: {str(e)}")
 
-elif page == "SHAP·ÖÎö":
-    st.header("SHAP·ÖÎö")
-    
-    st.subheader("Ä£ĞÍ¿É½âÊÍĞÔ·ÖÎö")
-    st.info("""
-    SHAP·ÖÎö¹¦ÄÜ°üÀ¨:
-    - ÌØÕ÷ÖØÒªĞÔÅÅĞò
-    - µ¥¸öÔ¤²â½âÊÍ
-    - ÌØÕ÷ÒÀÀµ·ÖÎö
-    - Ä£ĞÍ±È½Ï
-    """)
-    
-    if st.button("ÔËĞĞSHAP·ÖÎö"):
-        with st.spinner("SHAP·ÖÎöÖĞ..."):
-            try:
-                st.warning("SHAP·ÖÎö¹¦ÄÜ´ıÍêÕû¼¯³É...")
-                # ÕâÀï¿ÉÒÔµ÷ÓÃÄúµÄ SHAP.py ¹¦ÄÜ
-                
-                # Ä£ÄâSHAP½á¹û
-                st.success("SHAP·ÖÎöÍê³É£¡")
-                
-                # ÏÔÊ¾Ä£ÄâÌØÕ÷ÖØÒªĞÔ
-                feature_importance = pd.DataFrame({
-                    'Feature': ['Feature_A', 'Feature_B', 'Feature_C', 'Feature_D', 'Feature_E'],
-                    'Importance': [0.25, 0.20, 0.15, 0.12, 0.08]
-                })
-                
-                st.subheader("ÌØÕ÷ÖØÒªĞÔÅÅĞò")
-                fig, ax = plt.subplots(figsize=(10, 6))
-                ax.barh(feature_importance['Feature'], feature_importance['Importance'])
-                ax.set_xlabel('SHAP Importance')
-                ax.set_title('Feature Importance')
-                st.pyplot(fig)
-                
             except Exception as e:
-                st.error(f"SHAP·ÖÎöÊ§°Ü: {e}")
-
-# Ò³½Å
-st.markdown("---")
-st.markdown("**IC-SE Predict System** | ¹ÌÌ¬Àë×Óµçµ¼ÂÊÔ¤²â | Powered by Streamlit & AutoGluon")
+                st.error(f"An error occurred: {str(e)}")
