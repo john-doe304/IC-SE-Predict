@@ -195,20 +195,18 @@ def mol_to_image(mol, size=(300, 300)):
         svg = re.sub(r'viewBox="[^"]+"', f'viewBox="0 0 {size[0]} {size[1]}"', svg)
     
     return svg
+	
 # 材料特征计算函数
-def calculate_material_features(formula):
-    """Calculate material features based on chemical formula using Magpie descriptors"""
+def calculate_material_features_debug(formula):
+    """带调试信息的特征计算函数"""
     try:
-        # 尝试导入所需的库
-        try:
-            from pymatgen.core import Composition
-            from matminer.featurizers.composition import (
-                ElementProperty, Meredig, Stoichiometry, ValenceOrbital, IonProperty
-            )
-            from matminer.featurizers.conversions import StrToComposition, CompositionToOxidComposition
-        except ImportError as e:
-            st.warning(f"Some feature calculation libraries not available: {e}")
-            return calculate_basic_features(formula)
+        from pymatgen.core import Composition
+        from matminer.featurizers.composition import (
+            ElementProperty, Meredig, Stoichiometry, ValenceOrbital, IonProperty
+        )
+        from matminer.featurizers.conversions import StrToComposition, CompositionToOxidComposition
+        
+        print(f"开始处理化学式: {formula}")
         
         # 创建DataFrame用于特征计算
         df = pd.DataFrame({'Formula': [formula]})
@@ -216,120 +214,57 @@ def calculate_material_features(formula):
         # 将字符串转换为composition对象
         stc = StrToComposition()
         df = stc.featurize_dataframe(df, 'Formula', ignore_errors=True)
+        print(f"转换后DataFrame列: {df.columns.tolist()}")
         
-        if 'composition' not in df.columns:
-            st.error("Failed to convert formula to composition object")
-            return calculate_basic_features(formula)
+        if 'composition' not in df.columns or df['composition'].iloc[0] is None:
+            print("错误: 无法将化学式转换为composition对象")
+            return {'Formula': formula}
         
         features = {'Formula': formula}
-		
-		
-            # 1. 元素属性特征 (Magpie)
-            ep_featurizer = ElementProperty.from_preset('magpie')
-            df = ep_featurizer.featurize_dataframe(df, 'composition', ignore_errors=True)
+
+        # 1. 元素属性特征 (Magpie)
+        print("计算元素属性特征...")
+        ep_featurizer = ElementProperty.from_preset('magpie')
+        df = ep_featurizer.featurize_dataframe(df, 'composition', ignore_errors=True)
+        print(f"元素属性特征后列数: {len(df.columns)}")
         
+        # 2. Meredig特征
+        print("计算Meredig特征...")
+        meredig_featurizer = Meredig()
+        df = meredig_featurizer.featurize_dataframe(df, 'composition', ignore_errors=True)
+        print(f"Meredig特征后列数: {len(df.columns)}")
         
+        # 3. 化学计量特征
+        print("计算化学计量特征...")
+        stoichiometry_featurizer = Stoichiometry()
+        df = stoichiometry_featurizer.featurize_dataframe(df, 'composition', ignore_errors=True)
+        print(f"化学计量特征后列数: {len(df.columns)}")
         
-            # 2. Meredig特征
-            meredig_featurizer = Meredig()
-            df = meredig_featurizer.featurize_dataframe(df, 'composition', ignore_errors=True)
-        
-        
-       
-            # 3. 化学计量特征
-            stoichiometry_featurizer = Stoichiometry()
-            df = stoichiometry_featurizer.featurize_dataframe(df, 'composition', ignore_errors=True)
-        
-        
-      
-            # 4. 离子特性特征需要先转换氧化态
-            cto = CompositionToOxidComposition()
-            df = cto.featurize_dataframe(df, 'composition', ignore_errors=True)
-            
-            ion_featurizer = IonProperty()
-            df = ion_featurizer.featurize_dataframe(df, 'composition_oxid', ignore_errors=True)
-        
+        # 4. 离子特性特征
+        print("计算离子特性特征...")
+        cto = CompositionToOxidComposition()
+        df = cto.featurize_dataframe(df, 'composition', ignore_errors=True)
+        ion_featurizer = IonProperty()
+        df = ion_featurizer.featurize_dataframe(df, 'composition_oxid', ignore_errors=True)
+        print(f"离子特性特征后列数: {len(df.columns)}")
 
         # 提取数值特征
-        numeric_columns = df.select_dtypes(include=[np.number]).columns
+        numeric_columns = df.select_dtypes(include=[np.number]).columns  # 现在np已经导入
+        print(f"找到数值列: {len(numeric_columns)} 个")
+        
         for col in numeric_columns:
-            if col != 'Formula':  # 跳过非特征列
-                features[col] = df[col].iloc[0] if not pd.isna(df[col].iloc[0]) else 0.0
+            if col != 'Formula' and not col.startswith('composition'):
+                value = df[col].iloc[0]
+                features[col] = value if not pd.isna(value) else 0.0
         
-        # 添加基本特征作为后备
-        basic_features = calculate_basic_features(formula)
-        features.update(basic_features)
-        
+        print(f"最终生成特征: {len(features)} 个")
         return features
 
-	except Exception as e:
-        st.error(f"Advanced feature calculation failed: {e}")
-        # 如果高级特征计算失败，返回基本特征
-        return calculate_basic_features(formula)
-
-def calculate_basic_features(formula):
-    """Calculate basic material features when advanced libraries are not available"""
-    try:
-        # 基本特征计算（不依赖外部库）
-        elements = []
-        current_element = ""
-        
-        # 简单的化学式解析
-        for char in formula:
-            if char.isupper():
-                if current_element:
-                    elements.append(current_element)
-                current_element = char
-            elif char.islower():
-                current_element += char
-            elif char.isdigit():
-                # 处理数字（这里简化处理）
-                continue
-
-		 if current_element:
-            elements.append(current_element)
-        
-        unique_elements = set(elements)
-        
-        features = {
-            'Formula': formula,
-            'Element_Count': len(unique_elements),
-            'Formula_Length': len(formula),
-            'Li_Content': formula.count('Li'),
-            'O_Content': formula.count('O'),
-            'S_Content': formula.count('S'),
-            'Cl_Content': formula.count('Cl'),
-            'P_Content': formula.count('P'),
-            'La_Content': formula.count('La'),
-            'Zr_Content': formula.count('Zr'),
-            'Ge_Content': formula.count('Ge'),
-            'Y_Content': formula.count('Y'),
-            'Has_Li': 1 if 'Li' in formula else 0,
-            'Has_O': 1 if 'O' in formula else 0,
-            'Has_S': 1 if 'S' in formula else 0,
-            'Has_Cl': 1 if 'Cl' in formula else 0,
-        }
-        
-        return features
-	
-	except Exception as e:
-        st.error(f"Basic feature calculation failed: {e}")
-        return {'Formula': formula, 'Error': str(e)}
-
-def filter_features(features_df, nan_threshold=0.4):
-    """Filter features based on NaN ratio"""
-    try:
-        # 删除缺失值比例太高的列
-        nan_ratio = features_df.isnull().sum() / features_df.shape[0]
-        data_filtered = features_df.loc[:, nan_ratio < nan_threshold]
-        
-        # 填充剩余的NaN值
-        data_filtered = data_filtered.fillna(0)
-        
-        return data_filtered
     except Exception as e:
-        st.error(f"Feature filtering failed: {e}")
-        return features_df.fillna(0)
+        print(f"特征计算失败: {e}")
+        import traceback
+        print(f"详细错误: {traceback.format_exc()}")
+        return {'Formula': formula}
 		
 		
 # 如果点击提交按钮
