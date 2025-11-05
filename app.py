@@ -269,7 +269,7 @@ def calculate_material_features_debug(formula):
 		
 # 如果点击提交按钮
 if submit_button:
-    if not formula input:
+    if not formula_input:
         st.error("Please enter a valid chemical formula.")
     else:
         with st.spinner("Processing material and making predictions..."):
