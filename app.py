@@ -98,9 +98,9 @@ st.markdown(
 st.markdown(
     """
     <div class='rounded-container'>
-        <h2>IC-SE Predict - Solid State Ionic Conductivity Prediction Platform</h2>
+        <h2> Predict Ionic Conductivity(Cond) of Solid Electrolytes</h2>
         <blockquote>
-            1. This platform predicts ionic conductivity of solid-state electrolytes based on material composition and structural features.<br>
+            1. This web app predicts ionic conductivity of solid electrolytes based on material composition features.<br>
             2. Supports various solid electrolyte materials including oxides, sulfides, and halides.<br>
             3. Code and data available at <a href='https://github.com/john-doe304/IC-SE-Predict' target='_blank'>GitHub Repository</a>.
         </blockquote>
@@ -372,6 +372,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
 
 
