@@ -300,12 +300,12 @@ if submit_button:
 
                 if features:
                     # 显示特征信息
-                    st.subheader("Material Features")
+                   
                     feature_df = pd.DataFrame([features])
                     filtered_features = filter_features(feature_df)
                         
                    
-                    st.dataframe(filtered_features)
+                    
 					
                     # 创建输入数据
                     input_data = {
@@ -372,4 +372,5 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
