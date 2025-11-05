@@ -197,7 +197,7 @@ def mol_to_image(mol, size=(300, 300)):
     return svg
 	
 # 材料特征计算函数
-def calculate_material_features_debug(formula):
+def calculate_material_features(formula):
     """带调试信息的特征计算函数"""
     try:
         from pymatgen.core import Composition
@@ -265,7 +265,17 @@ def calculate_material_features_debug(formula):
         import traceback
         print(f"详细错误: {traceback.format_exc()}")
         return {'Formula': formula}
-		
+def filter_features(feature_df):
+    """
+    过滤特征，只显示数值型特征
+    """
+    # 选择数值列
+    numeric_cols = feature_df.select_dtypes(include=[np.number]).columns.tolist()
+    
+    # 过滤掉全为零的特征
+    filtered_df = feature_df[numeric_cols].loc[:, (feature_df[numeric_cols] != 0).any(axis=0)]
+    
+    return filtered_df		
 		
 # 如果点击提交按钮
 if submit_button:
