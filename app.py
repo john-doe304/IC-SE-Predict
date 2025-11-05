@@ -214,7 +214,7 @@ def calculate_material_features(formula):
 
         features = {'Formula': formula}
 
-        # 元素属性
+        # 元素属性特征
         ep = ElementProperty.from_preset('magpie')
         df = ep.featurize_dataframe(df, 'composition', ignore_errors=True)
 
@@ -222,7 +222,7 @@ def calculate_material_features(formula):
         mer = Meredig()
         df = mer.featurize_dataframe(df, 'composition', ignore_errors=True)
 
-        # 化学计量
+        # 化学计量特征
         sto = Stoichiometry()
         df = sto.featurize_dataframe(df, 'composition', ignore_errors=True)
 
@@ -232,34 +232,58 @@ def calculate_material_features(formula):
         ion = IonProperty()
         df = ion.featurize_dataframe(df, 'composition_oxid', ignore_errors=True)
 
+        # 数值特征提取
         numeric_columns = df.select_dtypes(include=[np.number]).columns
         for col in numeric_columns:
             val = df[col].iloc[0]
-            features[col] = val if not pd.isna(val) else 0.0
+            features[col] = float(val) if not pd.isna(val) else 0.0
 
         return features
 
     except Exception as e:
-        print(f"特征计算失败: {e}")
+        st.warning(f"Feature calculation failed: {e}")
         import traceback
         print(traceback.format_exc())
-        return {'Formula': formula}	
+        return {'Formula': formula}
+#过滤特征（仅展示非零数值列）
+def filter_features(feature_df):
+    if feature_df is None or feature_df.empty:
+        return feature_df
+    numeric_cols = feature_df.select_dtypes(include=[np.number]).columns.tolist()
+    if not numeric_cols:
+        return pd.DataFrame()
+    filtered = feature_df[numeric_cols].loc[:, (feature_df[numeric_cols] != 0).any(axis=0)]
+    return filtered
+
+
 #自动匹配模型特征
-def align_features_with_model(features_dict, predictor):
-    """自动匹配模型输入特征"""
-    model_features = predictor.feature_metadata.get_features()
+def align_features_with_model(features_dict, predictor, temperature, formula, material_system):
+    if predictor is None:
+        return pd.DataFrame([features_dict])
+
+    try:
+        model_features = predictor.feature_metadata.get_features()
+    except Exception:
+        model_features = []
+
     aligned = {}
+    lower_map = {k.lower(): k for k in features_dict.keys()}
+
     for feat in model_features:
+        f_low = feat.lower()
         if feat in features_dict:
             aligned[feat] = features_dict[feat]
-        elif feat.lower() in ['temp', 'temperature', 'temperature_k']:
+        elif f_low in lower_map:
+            aligned[feat] = features_dict[lower_map[f_low]]
+        elif f_low in ['temp', 'temperature', 'temperature_k']:
             aligned[feat] = temperature
-        elif feat.lower() in ['formula']:
-            aligned[feat] = formula_input
-        elif feat.lower() in ['material_type']:
+        elif f_low in ['formula']:
+            aligned[feat] = formula
+        elif f_low in ['material_type']:
             aligned[feat] = material_system
         else:
-            aligned[feat] = 0.0  # 默认值
+            aligned[feat] = 0.0
+
     return pd.DataFrame([aligned])
 
 # 如果点击提交按钮
@@ -280,7 +304,10 @@ if submit_button:
                 # 计算材料特征
                 features = calculate_material_features(formula_input)
                 st.write(f"✅ Total features extracted: {len(features)}")
-                st.dataframe(pd.DataFrame([features]).iloc[:, :15])
+                feature_df = pd.DataFrame([features])
+                filtered_df = filter_features(feature_df)
+                st.subheader("Extracted Material Features (non-zero numeric columns)")
+                st.dataframe(filtered_df)
 			
                 if features:
                     # 显示特征信息
@@ -356,6 +383,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
 
 
