@@ -197,7 +197,7 @@ def mol_to_image(mol, size=(300, 300)):
     return svg
 	
 # 材料特征计算函数
-def calculate_material_features(formula):
+def calculate_material_features(formula, temperature):
     """计算材料的组成特征"""
     try:
         from matminer.featurizers.composition import (
@@ -390,6 +390,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
 
 
