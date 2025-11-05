@@ -198,85 +198,70 @@ def mol_to_image(mol, size=(300, 300)):
 	
 # 材料特征计算函数
 def calculate_material_features(formula):
-    """带调试信息的特征计算函数"""
+    """计算材料的组成特征"""
     try:
-        from pymatgen.core import Composition
         from matminer.featurizers.composition import (
-            ElementProperty, Meredig, Stoichiometry, ValenceOrbital, IonProperty
+            ElementProperty, Meredig, Stoichiometry, IonProperty
         )
         from matminer.featurizers.conversions import StrToComposition, CompositionToOxidComposition
-        
-        print(f"开始处理化学式: {formula}")
-        
-        # 创建DataFrame用于特征计算
+
         df = pd.DataFrame({'Formula': [formula]})
-        
-        # 将字符串转换为composition对象
         stc = StrToComposition()
         df = stc.featurize_dataframe(df, 'Formula', ignore_errors=True)
-        print(f"转换后DataFrame列: {df.columns.tolist()}")
-        
+
         if 'composition' not in df.columns or df['composition'].iloc[0] is None:
-            print("错误: 无法将化学式转换为composition对象")
             return {'Formula': formula}
-        
+
         features = {'Formula': formula}
 
-        # 1. 元素属性特征 (Magpie)
-        print("计算元素属性特征...")
-        ep_featurizer = ElementProperty.from_preset('magpie')
-        df = ep_featurizer.featurize_dataframe(df, 'composition', ignore_errors=True)
-        print(f"元素属性特征后列数: {len(df.columns)}")
-        
-        # 2. Meredig特征
-        print("计算Meredig特征...")
-        meredig_featurizer = Meredig()
-        df = meredig_featurizer.featurize_dataframe(df, 'composition', ignore_errors=True)
-        print(f"Meredig特征后列数: {len(df.columns)}")
-        
-        # 3. 化学计量特征
-        print("计算化学计量特征...")
-        stoichiometry_featurizer = Stoichiometry()
-        df = stoichiometry_featurizer.featurize_dataframe(df, 'composition', ignore_errors=True)
-        print(f"化学计量特征后列数: {len(df.columns)}")
-        
-        # 4. 离子特性特征
-        print("计算离子特性特征...")
+        # 元素属性
+        ep = ElementProperty.from_preset('magpie')
+        df = ep.featurize_dataframe(df, 'composition', ignore_errors=True)
+
+        # Meredig
+        mer = Meredig()
+        df = mer.featurize_dataframe(df, 'composition', ignore_errors=True)
+
+        # 化学计量
+        sto = Stoichiometry()
+        df = sto.featurize_dataframe(df, 'composition', ignore_errors=True)
+
+        # 离子特征
         cto = CompositionToOxidComposition()
         df = cto.featurize_dataframe(df, 'composition', ignore_errors=True)
-        ion_featurizer = IonProperty()
-        df = ion_featurizer.featurize_dataframe(df, 'composition_oxid', ignore_errors=True)
-        print(f"离子特性特征后列数: {len(df.columns)}")
+        ion = IonProperty()
+        df = ion.featurize_dataframe(df, 'composition_oxid', ignore_errors=True)
 
-        # 提取数值特征
-        numeric_columns = df.select_dtypes(include=[np.number]).columns  # 现在np已经导入
-        print(f"找到数值列: {len(numeric_columns)} 个")
-        
+        numeric_columns = df.select_dtypes(include=[np.number]).columns
         for col in numeric_columns:
-            if col != 'Formula' and not col.startswith('composition'):
-                value = df[col].iloc[0]
-                features[col] = value if not pd.isna(value) else 0.0
-        
-        print(f"最终生成特征: {len(features)} 个")
-        return pd.DataFrame(df)
+            val = df[col].iloc[0]
+            features[col] = val if not pd.isna(val) else 0.0
+
+        return features
 
     except Exception as e:
         print(f"特征计算失败: {e}")
         import traceback
-        print(f"详细错误: {traceback.format_exc()}")
-        return {'Formula': formula}
-def filter_features(feature_df):
-    """
-    过滤特征，只显示数值型特征
-    """
-    # 选择数值列
-    numeric_cols = feature_df.select_dtypes(include=[np.number]).columns.tolist()
-    
-    # 过滤掉全为零的特征
-    filtered_df = feature_df[numeric_cols].loc[:, (feature_df[numeric_cols] != 0).any(axis=0)]
-    
-    return filtered_df		
-		
+        print(traceback.format_exc())
+        return {'Formula': formula}	
+#自动匹配模型特征
+def align_features_with_model(features_dict, predictor):
+    """自动匹配模型输入特征"""
+    model_features = predictor.feature_metadata.get_features()
+    aligned = {}
+    for feat in model_features:
+        if feat in features_dict:
+            aligned[feat] = features_dict[feat]
+        elif feat.lower() in ['temp', 'temperature', 'temperature_k']:
+            aligned[feat] = temperature
+        elif feat.lower() in ['formula']:
+            aligned[feat] = formula_input
+        elif feat.lower() in ['material_type']:
+            aligned[feat] = material_system
+        else:
+            aligned[feat] = 0.0  # 默认值
+    return pd.DataFrame([aligned])
+
 # 如果点击提交按钮
 if submit_button:
     if not formula_input:
@@ -288,16 +273,15 @@ if submit_button:
                 material_info = material_systems[material_system]
                     
                 col1, col2, col3 = st.columns(3)
-                with col1:
-                        st.metric("Material Type", material_system)
-                with col2:
-                        st.metric("Crystal Structure", material_info["Type"])
-                with col3:
-                        st.metric("Temperature", f"{temperature} K")
+               col1.metric("Material Type", material_system)
+                col2.metric("Crystal Structure", material_info["Type"])
+                col3.metric("Temperature", f"{temperature} K")
 						
                 # 计算材料特征
                 features = calculate_material_features(formula_input)
-
+                st.write(f"✅ Total features extracted: {len(features)}")
+                st.dataframe(pd.DataFrame([features]).iloc[:, :15])
+			
                 if features:
                     # 显示特征信息
                    
@@ -372,6 +356,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
 
 
