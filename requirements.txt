@@ -4,5 +4,8 @@ numpy==1.26.4
 pandas==2.1.4
 autogluon==1.2.0
 pillow==10.4.0  # 显式指定兼容版本
+pymatgen==2023.9.10
+matminer==0.8.0
+scikit-learn==1.3.0
 mordred
 #git+https://github.com/mordred-descriptor/mordred.git
