@@ -258,7 +258,7 @@ def calculate_material_features(formula):
                 features[col] = value if not pd.isna(value) else 0.0
         
         print(f"最终生成特征: {len(features)} 个")
-        return features
+        return pd.DataFrame(df)
 
     except Exception as e:
         print(f"特征计算失败: {e}")
@@ -372,6 +372,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
 
 
