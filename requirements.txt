@@ -1,17 +1,7 @@
-streamlit>=1.28.0
-pandas>=1.5.0
-numpy>=1.21.0
-scikit-learn>=1.2.0
-pillow>=9.0.0
-
-# 材料信息学相关包（使用兼容版本）
-pymatgen==2022.11.7
-matminer==0.8.4
-
-# 机器学习
-autogluon==1.1.0
-
-# 化学信息学（可选，如果不需要可以移除）
-rdkit-pypi
-mordred==1.2.0
+streamlit
+pandas
+numpy
+scikit-learn
+pymatgen
+matminer
 #git+https://github.com/mordred-descriptor/mordred.git
