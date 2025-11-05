@@ -205,14 +205,16 @@ def calculate_material_features(formula):
         )
         from matminer.featurizers.conversions import StrToComposition, CompositionToOxidComposition
 
-        df = pd.DataFrame({'Formula': [formula]})
+        df = pd.DataFrame({'Formula': [formula], 'Temperature_K': [temperature]})
         stc = StrToComposition()
         df = stc.featurize_dataframe(df, 'Formula', ignore_errors=True)
 
         if 'composition' not in df.columns or df['composition'].iloc[0] is None:
-            return {'Formula': formula}
+            return {'Formula': formula, 'Temperature_K': temperature}
 
-        features = {'Formula': formula}
+        features = {'Formula': formula,
+				   'Temperature_K': temperature,
+				   'Temp': temperature}
 
         # 元素属性特征
         ep = ElementProperty.from_preset('magpie')
@@ -244,7 +246,8 @@ def calculate_material_features(formula):
         st.warning(f"Feature calculation failed: {e}")
         import traceback
         print(traceback.format_exc())
-        return {'Formula': formula}
+        return {'Formula': formula, 'Temperature_K': temperature}
+		
 #过滤特征（仅展示非零数值列）
 def filter_features(feature_df):
     if feature_df is None or feature_df.empty:
@@ -302,7 +305,7 @@ if submit_button:
                 col3.metric("Temperature", f"{temperature} K")
 						
                 # 计算材料特征
-                features = calculate_material_features(formula_input)
+                features = calculate_material_features(formula_input, temperature)
                 st.write(f"✅ Total features extracted: {len(features)}")
                 feature_df = pd.DataFrame([features])
                 filtered_df = filter_features(feature_df)
@@ -332,7 +335,11 @@ if submit_button:
                             numeric_features[feature_name] = [features[feature_name]]
                         else:
                             numeric_features[feature_name] = [0.0]  # 默认值
-                        
+                            if feature_name.lower() == 'temp':
+                                numeric_features[feature_name] = [temperature]
+                            else:
+                                numeric_features[feature_name] = [0.0] 
+								
                     input_data.update(numeric_features)
                         
                     input_df = pd.DataFrame(input_data)
@@ -383,6 +390,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
 
 
