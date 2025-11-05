@@ -304,7 +304,7 @@ if submit_button:
                     feature_df = pd.DataFrame([features])
                     filtered_features = filter_features(feature_df)
                         
-                    st.write(f"Total features calculated: {len(features)}")
+                   
                     st.dataframe(filtered_features)
 					
                     # 创建输入数据
@@ -372,3 +372,4 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
