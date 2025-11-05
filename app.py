@@ -327,8 +327,8 @@ if submit_button:
                     input_df = pd.DataFrame(input_data)
                 
                     # 显示输入数据
-                    st.write("Input Data for Prediction:")
-                    st.dataframe(input_df)
+                    #st.write("Input Data for Prediction:")
+                    #st.dataframe(input_df)
 
                 
                 
@@ -372,6 +372,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
 
 
