@@ -133,16 +133,6 @@ temperature = st.number_input("Select Temperature (K):", min_value=200, max_valu
 # 提交按钮
 submit_button = st.button("Submit and Predict", key="predict_button")
 
-# 指定的描述符列表
-required_descriptors = [
-        'MagpieData mean CovalentRadius',
-        'Temp',
-        'MagpieData avg_dev SpaceGroupNumber',
-        '0-norm',
-        'MagpieData mean MeltingT',
-        'MagpieData avg_dev Column',
-        'MagpieData mean NValence'
-    ]
 
 # 缓存模型加载器以避免重复加载
 @st.cache_resource(show_spinner=False, max_entries=1)  # 限制只缓存一个实例
@@ -372,5 +362,6 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
 
