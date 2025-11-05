@@ -273,7 +273,7 @@ if submit_button:
                 material_info = material_systems[material_system]
                     
                 col1, col2, col3 = st.columns(3)
-               col1.metric("Material Type", material_system)
+                col1.metric("Material Type", material_system)
                 col2.metric("Crystal Structure", material_info["Type"])
                 col3.metric("Temperature", f"{temperature} K")
 						
@@ -356,6 +356,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
 
 
