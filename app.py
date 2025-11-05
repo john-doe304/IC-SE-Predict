@@ -111,14 +111,14 @@ st.markdown(
 
 # 材料体系选择
 material_systems = {
-    "LLZO": {"Type": "Garnet", "Typical Composition": "Li7La3Zr2O12", "Temperature Range": "25-500°C"},
-    "LGPS": {"Type": "Sulfide", "Typical Composition": "Li10GeP2S12", "Temperature Range": "25-300°C"},
-    "NASICON": {"Type": "NASICON", "Typical Composition": "Li1+xAlxTi2-x(PO4)3", "Temperature Range": "25-400°C"},
-    "Perovskite": {"Type": "Perovskite", "Typical Composition": "Li3xLa2/3-xTiO3", "Temperature Range": "25-600°C"},
-    "Anti-Perovskite": {"Type": "Anti-Perovskite", "Typical Composition": "Li3OCl", "Temperature Range": "25-300°C"},
-    "Sulfide": {"Type": "Sulfide Glass", "Typical Composition": "Li2S-P2S5", "Temperature Range": "25-200°C"},
-    "Polymer": {"Type": "Polymer", "Typical Composition": "PEO-LiTFSI", "Temperature Range": "40-100°C"},
-    "Halide": {"Type": "Halide", "Typical Composition": "Li3YCl6", "Temperature Range": "25-300°C"}
+    "LLZO": {"Type": "Garnet Oxide", "Typical Composition": "Li7La3Zr2O12", "Temperature Range": "25-500°C"},
+    "LGPS": {"Type": "Crystalline Sulfide", "Typical Composition": "Li10GeP2S12", "Temperature Range": "25-300°C"},
+    "NASICON": {"Type": "NASICON Oxide", "Typical Composition": "Li1+xAlxTi2-x(PO4)3", "Temperature Range": "25-400°C"},
+    "Perovskite": {"Type": "Perovskite Oxide", "Typical Composition": "Li3xLa2/3-xTiO3", "Temperature Range": "25-600°C"},
+    "Anti-Perovskite": {"Type": "Anti-Perovskite Halide", "Typical Composition": "Li3OCl", "Temperature Range": "25-300°C"},
+    "Sulfide Glass": {"Type": "Amorphous Sulfide", "Typical Composition": "Li2S-P2S5", "Temperature Range": "25-200°C"},
+    "Polymer": {"Type": "Polymer Electrolyte", "Typical Composition": "PEO-LiTFSI", "Temperature Range": "40-100°C"},
+    "Halide": {"Type": "Halide Electrolyte", "Typical Composition": "Li3YCl6", "Temperature Range": "25-300°C"}
 }
 
 # 材料体系选择下拉菜单
@@ -372,6 +372,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
 
 
