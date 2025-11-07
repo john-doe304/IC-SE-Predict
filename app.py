@@ -253,7 +253,7 @@ def get_crystal_structure_info(formula):
         if formula in key or key in formula:
             return crystal_structures[key]
     
-    # 根据材料类型推断
+     # 根据材料类型推断
     if "Li" in formula and ("La" in formula or "Zr" in formula):
         return {
             "crystal_system": "Cubic/Tetragonal",
@@ -270,7 +270,7 @@ def get_crystal_structure_info(formula):
             "density": "~2.0-2.5 g/cm³",
             "reference": "Typical Sulfide Structure"
         }
-	elif "Li" in formula and ("Cl" in formula or "Br" in formula or "I" in formula):
+    elif "Li" in formula and ("Cl" in formula or "Br" in formula or "I" in formula):
         return {
             "crystal_system": "Trigonal/Hexagonal",
             "space_group": "R-3m/P6_3/mmc", 
@@ -286,7 +286,7 @@ def get_crystal_structure_info(formula):
             "density": "Unknown",
             "reference": "Structure data not available"
         }
-
+			
 # 材料特征计算函数
 def calculate_material_features(formula):
     """计算材料的组成特征"""
@@ -501,6 +501,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
 
 
