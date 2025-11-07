@@ -67,6 +67,13 @@ st.markdown(
         padding: 5px;
         background-color: transparent; /* 透明背景 */
     }
+    .crystal-structure-info {
+        background-color: #f0f8ff;
+        padding: 15px;
+        border-radius: 10px;
+        margin: 10px 0;
+        border-left: 4px solid #4CAF50;
+    }
      /* 针对小屏幕的优化 */
     @media (max-width: 768px) {
         .rounded-container {
@@ -133,16 +140,16 @@ temperature = st.number_input("Select Temperature (K):", min_value=200, max_valu
 # 提交按钮
 submit_button = st.button("Submit and Predict", key="predict_button")
 
-# 指定的描述符列表
+# 指定的描述符列表 - 你选择的七个特征
 required_descriptors = [
-        'MagpieData mean CovalentRadius',
-        'Temp',
-        'MagpieData avg_dev SpaceGroupNumber',
-        '0-norm',
-        'MagpieData mean MeltingT',
-        'MagpieData avg_dev Column',
-        'MagpieData mean NValence'
-    ]
+    'MagpieData mean CovalentRadius',
+    'Temp',
+    'MagpieData avg_dev SpaceGroupNumber',
+    '0-norm',
+    'MagpieData mean MeltingT',
+    'MagpieData avg_dev Column',
+    'MagpieData mean NValence'
+]
 
 # 缓存模型加载器以避免重复加载
 @st.cache_resource(show_spinner=False, max_entries=1)  # 限制只缓存一个实例
@@ -195,9 +202,93 @@ def mol_to_image(mol, size=(300, 300)):
         svg = re.sub(r'viewBox="[^"]+"', f'viewBox="0 0 {size[0]} {size[1]}"', svg)
     
     return svg
+
+# 晶体结构数据库
+crystal_structures = {
+    "Li7La3Zr2O12": {
+        "crystal_system": "Cubic",
+        "space_group": "Ia-3d",
+        "lattice_parameters": "a = 12.97 Å",
+        "density": "5.08 g/cm³",
+        "reference": "Murugan et al., Angew. Chem. Int. Ed. (2007)"
+    },
+    "Li10GeP2S12": {
+        "crystal_system": "Tetragonal", 
+        "space_group": "P4_2/nmc",
+        "lattice_parameters": "a = 8.72 Å, c = 12.54 Å",
+        "density": "2.04 g/cm³",
+        "reference": "Kamaya et al., Nat. Mater. (2011)"
+    },
+    "Li3YCl6": {
+        "crystal_system": "Trigonal",
+        "space_group": "R-3m", 
+        "lattice_parameters": "a = 6.62 Å, c = 18.24 Å",
+        "density": "2.67 g/cm³",
+        "reference": "Asano et al., Adv. Mater. (2018)"
+    },
+    "Li3OCl": {
+        "crystal_system": "Cubic",
+        "space_group": "Pm-3m",
+        "lattice_parameters": "a = 3.92 Å",
+        "density": "2.41 g/cm³", 
+        "reference": "Zhao et al., Nat. Commun. (2016)"
+    },
+    "Li1+xAlxTi2-x(PO4)3": {
+        "crystal_system": "Rhombohedral",
+        "space_group": "R-3c",
+        "lattice_parameters": "a = 8.51 Å, c = 20.84 Å",
+        "density": "2.94 g/cm³",
+        "reference": "Aono et al., J. Electrochem. Soc. (1990)"
+    }
+}
+
+def get_crystal_structure_info(formula):
+    """获取晶体结构信息"""
+    # 直接匹配
+    if formula in crystal_structures:
+        return crystal_structures[formula]
+    
+    # 模糊匹配（包含关系）
+    for key in crystal_structures:
+        if formula in key or key in formula:
+            return crystal_structures[key]
+    
+    # 根据材料类型推断
+    if "Li" in formula and ("La" in formula or "Zr" in formula):
+        return {
+            "crystal_system": "Cubic/Tetragonal",
+            "space_group": "Ia-3d/P4_2/nmc",
+            "lattice_parameters": "~12.9-13.0 Å",
+            "density": "~4.5-5.5 g/cm³",
+            "reference": "Typical Garnet Structure"
+        }
+    elif "Li" in formula and ("S" in formula or "P" in formula):
+        return {
+            "crystal_system": "Tetragonal/Orthorhombic", 
+            "space_group": "P4_2/nmc/Pnma",
+            "lattice_parameters": "a~8.7 Å, c~12.5 Å",
+            "density": "~2.0-2.5 g/cm³",
+            "reference": "Typical Sulfide Structure"
+        }
+    elif "Li" in formula and ("Cl" in formula or "Br" in formula or "I" in formula):
+        return {
+            "crystal_system": "Trigonal/Hexagonal",
+            "space_group": "R-3m/P6_3/mmc", 
+            "lattice_parameters": "a~6.6 Å, c~18.2 Å",
+            "density": "~2.5-3.0 g/cm³",
+            "reference": "Typical Halide Structure"
+        }
+    else:
+        return {
+            "crystal_system": "Unknown",
+            "space_group": "Unknown", 
+            "lattice_parameters": "Unknown",
+            "density": "Unknown",
+            "reference": "Structure data not available"
+        }
 	
 # 材料特征计算函数
-def calculate_material_features(formula, temperature):
+def calculate_material_features(formula):
     """计算材料的组成特征"""
     try:
         from matminer.featurizers.composition import (
@@ -205,16 +296,14 @@ def calculate_material_features(formula, temperature):
         )
         from matminer.featurizers.conversions import StrToComposition, CompositionToOxidComposition
 
-        df = pd.DataFrame({'Formula': [formula], 'Temperature_K': [temperature]})
+        df = pd.DataFrame({'Formula': [formula]})
         stc = StrToComposition()
         df = stc.featurize_dataframe(df, 'Formula', ignore_errors=True)
 
         if 'composition' not in df.columns or df['composition'].iloc[0] is None:
-            return {'Formula': formula, 'Temperature_K': temperature}
+            return {'Formula': formula}
 
-        features = {'Formula': formula,
-				   'Temperature_K': temperature,
-				   'Temp': temperature}
+        features = {'Formula': formula}
 
         # 元素属性特征
         ep = ElementProperty.from_preset('magpie')
@@ -246,18 +335,26 @@ def calculate_material_features(formula, temperature):
         st.warning(f"Feature calculation failed: {e}")
         import traceback
         print(traceback.format_exc())
-        return {'Formula': formula, 'Temperature_K': temperature}
-		
-#过滤特征（仅展示非零数值列）
-def filter_features(feature_df):
-    if feature_df is None or feature_df.empty:
-        return feature_df
-    numeric_cols = feature_df.select_dtypes(include=[np.number]).columns.tolist()
-    if not numeric_cols:
-        return pd.DataFrame()
-    filtered = feature_df[numeric_cols].loc[:, (feature_df[numeric_cols] != 0).any(axis=0)]
-    return filtered
+        return {'Formula': formula}
 
+# 过滤特征 - 只显示指定的七个特征
+def filter_selected_features(features_dict, selected_descriptors, temperature):
+    """只显示选定的七个特征"""
+    filtered_features = {}
+    
+    # 添加温度特征
+    filtered_features['Temperature_K'] = temperature
+    filtered_features['Temp'] = temperature
+    
+    # 添加选定的七个特征
+    for feature_name in selected_descriptors:
+        if feature_name in features_dict:
+            filtered_features[feature_name] = features_dict[feature_name]
+        else:
+            # 如果特征不存在，设为0
+            filtered_features[feature_name] = 0.0
+    
+    return filtered_features
 
 #自动匹配模型特征
 def align_features_with_model(features_dict, predictor, temperature, formula, material_system):
@@ -303,103 +400,20 @@ if submit_button:
                 col1.metric("Material Type", material_system)
                 col2.metric("Crystal Structure", material_info["Type"])
                 col3.metric("Temperature", f"{temperature} K")
+                
+                # 显示晶体结构信息
+                st.subheader("📐 Crystal Structure Information")
+                crystal_info = get_crystal_structure_info(formula_input)
+                
+                with st.container():
+                    st.markdown(f"""
+                    <div class='crystal-structure-info'>
+                    <h4>Crystal Structure Details for {formula_input}</h4>
+                    <p><strong>Crystal System:</strong> {crystal_info['crystal_system']}</p>
+                    <p><strong>Space Group:</strong> {crystal_info['space_group']}</p>
+                    <p><strong>Lattice Parameters:</strong> {crystal_info['lattice_parameters']}</p>
+                    <p><strong>Density:</strong> {crystal_info['density']}</p>
+                    <p><strong>Reference:</strong> <em>{crystal_info['reference']}</em></p>
+                    </div>
+                    """, unsafe_allow_html=True)
 						
-                # 计算材料特征
-                features = calculate_material_features(formula_input, temperature)
-                st.write(f"✅ Total features extracted: {len(features)}")
-                feature_df = pd.DataFrame([features])
-                filtered_df = filter_features(feature_df)
-                st.subheader("Extracted Material Features (non-zero numeric columns)")
-                st.dataframe(filtered_df)
-			
-                if features:
-                    # 显示特征信息
-                   
-                    feature_df = pd.DataFrame([features])
-                    filtered_features = filter_features(feature_df)
-                        
-                   
-                    
-					
-                    # 创建输入数据
-                    input_data = {
-                        "Formula": [formula_input],
-                         "Material_Type": [material_system],
-                         "Temperature_K": [temperature],
-                    }
-                    
-					# 添加数值特征
-                    numeric_features = {}
-                    for feature_name in required_descriptors:
-                        if feature_name in features:
-                            numeric_features[feature_name] = [features[feature_name]]
-                        else:
-                            numeric_features[feature_name] = [0.0]  # 默认值
-                            if feature_name.lower() == 'temp':
-                                numeric_features[feature_name] = [temperature]
-                            else:
-                                numeric_features[feature_name] = [0.0] 
-								
-                    input_data.update(numeric_features)
-                        
-                    input_df = pd.DataFrame(input_data)
-                
-                    # 显示输入数据
-                    #st.write("Input Data for Prediction:")
-                    #st.dataframe(input_df)
-
-                
-                
-                # 加载模型并预测
-                try:
-                    # 使用缓存的模型加载方式
-                    predictor = load_predictor()
-                    
-                    # 只使用最关键的模型进行预测，减少内存占用
-                    essential_models = ['CatBoost',
-  					                    'ExtraTreesMSE',
-										'LightGBM',
-										'KNeighborsDist',
-										'WeightedEnsemble_L2',
-										'XGBoost']
-										
-                    predict_df = input_df.copy()
-                    predictions_dict = {}
-                    
-                    for model in essential_models:
-                        try:
-                            predictions = predictor.predict(predict_df, model=model)
-                            predictions_dict[model] = predictions
-                        except Exception as model_error:
-                            st.warning(f"Model {model} prediction failed: {str(model_error)}")
-                            predictions_dict[model] = "Error"
-
-                    # 显示预测结果
-                    st.write("Prediction Results (Essential Models):")
-                    st.markdown(
-                        "**Note:** WeightedEnsemble_L2 is a meta-model combining predictions from other models.")
-                    results_df = pd.DataFrame(predictions_dict)
-                    st.dataframe(results_df.iloc[:1,:])
-                    
-                    # 主动释放内存
-                    del predictor
-                    gc.collect()
-
-                except Exception as e:
-                    st.error(f"Model loading failed: {str(e)}")
-
-            except Exception as e:
-                st.error(f"An error occurred: {str(e)}")
-
-
-
-
-
-
-
-
-
-
-
-
-
