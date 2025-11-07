@@ -270,7 +270,7 @@ def get_crystal_structure_info(formula):
             "density": "~2.0-2.5 g/cm³",
             "reference": "Typical Sulfide Structure"
         }
-		elif "Li" in formula and ("Cl" in formula or "Br" in formula or "I" in formula):
+	elif "Li" in formula and ("Cl" in formula or "Br" in formula or "I" in formula):
         return {
             "crystal_system": "Trigonal/Hexagonal",
             "space_group": "R-3m/P6_3/mmc", 
@@ -501,6 +501,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
 
 
