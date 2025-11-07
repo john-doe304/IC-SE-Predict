@@ -101,8 +101,7 @@ st.markdown(
         <h2> Predict Ionic Conductivity(Cond) of Solid Electrolytes</h2>
         <blockquote>
             1. This web app predicts ionic conductivity of solid electrolytes based on material composition features.<br>
-            2. Supports various solid electrolyte materials including oxides, sulfides, and halides.<br>
-            3. Code and data available at <a href='https://github.com/john-doe304/IC-SE-Predict' target='_blank'>GitHub Repository</a>.
+            2. Code and data available at <a href='https://github.com/john-doe304/IC-SE-Predict' target='_blank'>GitHub Repository</a>.
         </blockquote>
     </div>
     """,
@@ -195,7 +194,99 @@ def mol_to_image(mol, size=(300, 300)):
         svg = re.sub(r'viewBox="[^"]+"', f'viewBox="0 0 {size[0]} {size[1]}"', svg)
     
     return svg
-	
+
+
+# 晶体结构数据库
+crystal_structures = {
+    "Li7La3Zr2O12": {
+        "crystal_system": "Cubic",
+        "space_group": "Ia-3d",
+        "lattice_parameters": "a = 12.97 Å",
+        "density": "5.08 g/cm³",
+        "reference": "Murugan et al., Angew. Chem. Int. Ed. (2007)"
+    },
+    "Li10GeP2S12": {
+        "crystal_system": "Tetragonal", 
+        "space_group": "P4_2/nmc",
+        "lattice_parameters": "a = 8.72 Å, c = 12.54 Å",
+        "density": "2.04 g/cm³",
+        "reference": "Kamaya et al., Nat. Mater. (2011)"
+    },
+    "Li3YCl6": {
+        "crystal_system": "Trigonal",
+        "space_group": "R-3m", 
+        "lattice_parameters": "a = 6.62 Å, c = 18.24 Å",
+        "density": "2.67 g/cm³",
+        "reference": "Asano et al., Adv. Mater. (2018)"
+    },
+    "Li3OCl": {
+        "crystal_system": "Cubic",
+        "space_group": "Pm-3m",
+        "lattice_parameters": "a = 3.92 Å",
+        "density": "2.41 g/cm³", 
+        "reference": "Zhao et al., Nat. Commun. (2016)"
+    },
+	"Li3OCl": {
+        "crystal_system": "Cubic",
+        "space_group": "Pm-3m",
+        "lattice_parameters": "a = 3.92 Å",
+        "density": "2.41 g/cm³", 
+        "reference": "Zhao et al., Nat. Commun. (2016)"
+    },
+    "Li1+xAlxTi2-x(PO4)3": {
+        "crystal_system": "Rhombohedral",
+        "space_group": "R-3c",
+        "lattice_parameters": "a = 8.51 Å, c = 20.84 Å",
+        "density": "2.94 g/cm³",
+        "reference": "Aono et al., J. Electrochem. Soc. (1990)"
+    }
+}
+
+def get_crystal_structure_info(formula):
+    """获取晶体结构信息"""
+    # 直接匹配
+    if formula in crystal_structures:
+        return crystal_structures[formula]
+    
+    # 模糊匹配（包含关系）
+    for key in crystal_structures:
+        if formula in key or key in formula:
+            return crystal_structures[key]
+    
+    # 根据材料类型推断
+    if "Li" in formula and ("La" in formula or "Zr" in formula):
+        return {
+            "crystal_system": "Cubic/Tetragonal",
+            "space_group": "Ia-3d/P4_2/nmc",
+            "lattice_parameters": "~12.9-13.0 Å",
+            "density": "~4.5-5.5 g/cm³",
+            "reference": "Typical Garnet Structure"
+        }
+    elif "Li" in formula and ("S" in formula or "P" in formula):
+        return {
+            "crystal_system": "Tetragonal/Orthorhombic", 
+            "space_group": "P4_2/nmc/Pnma",
+            "lattice_parameters": "a~8.7 Å, c~12.5 Å",
+            "density": "~2.0-2.5 g/cm³",
+            "reference": "Typical Sulfide Structure"
+        }
+		elif "Li" in formula and ("Cl" in formula or "Br" in formula or "I" in formula):
+        return {
+            "crystal_system": "Trigonal/Hexagonal",
+            "space_group": "R-3m/P6_3/mmc", 
+            "lattice_parameters": "a~6.6 Å, c~18.2 Å",
+            "density": "~2.5-3.0 g/cm³",
+            "reference": "Typical Halide Structure"
+        }
+    else:
+        return {
+            "crystal_system": "Unknown",
+            "space_group": "Unknown", 
+            "lattice_parameters": "Unknown",
+            "density": "Unknown",
+            "reference": "Structure data not available"
+        }
+
 # 材料特征计算函数
 def calculate_material_features(formula):
     """计算材料的组成特征"""
@@ -245,15 +336,26 @@ def calculate_material_features(formula):
         import traceback
         print(traceback.format_exc())
         return {'Formula': formula}
+		
 #过滤特征（仅展示非零数值列）
-def filter_features(feature_df):
-    if feature_df is None or feature_df.empty:
-        return feature_df
-    numeric_cols = feature_df.select_dtypes(include=[np.number]).columns.tolist()
-    if not numeric_cols:
-        return pd.DataFrame()
-    filtered = feature_df[numeric_cols].loc[:, (feature_df[numeric_cols] != 0).any(axis=0)]
-    return filtered
+def filter_selected_features(features_dict, selected_descriptors, temperature):
+    """只显示选定的七个特征"""
+    filtered_features = {}
+    
+    # 添加温度特征
+    filtered_features['Temperature_K'] = temperature
+    filtered_features['Temp'] = temperature
+    
+    # 添加选定的七个特征
+    for feature_name in selected_descriptors:
+        if feature_name in features_dict:
+            filtered_features[feature_name] = features_dict[feature_name]
+        else:
+            # 如果特征不存在，设为0
+            filtered_features[feature_name] = 0.0
+    
+    return filtered_features
+
 
 
 #自动匹配模型特征
@@ -300,6 +402,22 @@ if submit_button:
                 col1.metric("Material Type", material_system)
                 col2.metric("Crystal Structure", material_info["Type"])
                 col3.metric("Temperature", f"{temperature} K")
+
+				# 显示晶体结构信息
+                st.subheader("📐 Crystal Structure Information")
+                crystal_info = get_crystal_structure_info(formula_input)
+                
+                with st.container():
+                    st.markdown(f"""
+                    <div class='crystal-structure-info'>
+                    <h4>Crystal Structure Details for {formula_input}</h4>
+                    <p><strong>Crystal System:</strong> {crystal_info['crystal_system']}</p>
+                    <p><strong>Space Group:</strong> {crystal_info['space_group']}</p>
+                    <p><strong>Lattice Parameters:</strong> {crystal_info['lattice_parameters']}</p>
+                    <p><strong>Density:</strong> {crystal_info['density']}</p>
+                    <p><strong>Reference:</strong> <em>{crystal_info['reference']}</em></p>
+                    </div>
+                    """, unsafe_allow_html=True)
 						
                 # 计算材料特征
                 features = calculate_material_features(formula_input)
@@ -383,6 +501,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
 
 
