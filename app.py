@@ -15,9 +15,6 @@ import gc  # 添加垃圾回收模块
 import re  # 添加正则表达式模块用于处理SVG
 from tqdm import tqdm 
 import numpy as np
-import plotly.graph_objects as go
-import plotly.express as px
-from plotly.subplots import make_subplots
 
 
 # 添加 CSS 样式
@@ -70,27 +67,6 @@ st.markdown(
         padding: 5px;
         background-color: transparent; /* 透明背景 */
     }
-    .crystal-structure-info {
-        background-color: #f0f8ff;
-        padding: 15px;
-        border-radius: 10px;
-        margin: 10px 0;
-        border-left: 4px solid #4CAF50;
-    }
-    .crystal-visualization {
-        background-color: #fff8f0;
-        padding: 15px;
-        border-radius: 10px;
-        margin: 10px 0;
-        border-left: 4px solid #FF6B00;
-    }
-    .prediction-results {
-        background-color: #f8fff0;
-        padding: 15px;
-        border-radius: 10px;
-        margin: 10px 0;
-        border-left: 4px solid #FF6B00;
-    }
      /* 针对小屏幕的优化 */
     @media (max-width: 768px) {
         .rounded-container {
@@ -122,7 +98,7 @@ st.markdown(
 st.markdown(
     """
     <div class='rounded-container'>
-        <h2> Predict Ionic Conductivity of Solid Electrolytes</h2>
+        <h2> Predict Ionic Conductivity(Cond) of Solid Electrolytes</h2>
         <blockquote>
             1. This web app predicts ionic conductivity of solid electrolytes based on material composition features.<br>
             2. Code and data available at <a href='https://github.com/john-doe304/IC-SE-Predict' target='_blank'>GitHub Repository</a>.
@@ -131,21 +107,6 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-
-# 材料体系定义 - 添加这部分
-material_systems = {
-    "LLZO": {"Type": "Garnet Oxide", "Typical Composition": "Li7La3Zr2O12", "Temperature Range": "25-500°C"},
-    "LGPS": {"Type": "Crystalline Sulfide", "Typical Composition": "Li10GeP2S12", "Temperature Range": "25-300°C"},
-    "NASICON": {"Type": "NASICON Oxide", "Typical Composition": "Li1+xAlxTi2-x(PO4)3", "Temperature Range": "25-400°C"},
-    "Perovskite": {"Type": "Perovskite Oxide", "Typical Composition": "Li3xLa2/3-xTiO3", "Temperature Range": "25-600°C"},
-    "Anti-Perovskite": {"Type": "Anti-Perovskite Halide", "Typical Composition": "Li3OCl", "Temperature Range": "25-300°C"},
-    "Sulfide Glass": {"Type": "Amorphous Sulfide", "Typical Composition": "Li2S-P2S5", "Temperature Range": "25-200°C"},
-    "Polymer": {"Type": "Polymer Electrolyte", "Typical Composition": "PEO-LiTFSI", "Temperature Range": "40-100°C"},
-    "Halide": {"Type": "Halide Electrolyte", "Typical Composition": "Li3YCl6", "Temperature Range": "25-300°C"}
-}
-
-# 材料体系选择下拉菜单
-material_system = st.selectbox("Select Material Type:", list(material_systems.keys()))
 
 # FORMULA 输入区域
 formula_input = st.text_input("Enter Chemical Formula of the Material:",placeholder="e.g., Li7La3Zr2O12, Li10GeP2S12, Li3YCl6", )
@@ -156,16 +117,16 @@ temperature = st.number_input("Select Temperature (K):", min_value=200, max_valu
 # 提交按钮
 submit_button = st.button("Submit and Predict", key="predict_button")
 
-# 指定的描述符列表 - 你选择的七个特征
+# 指定的描述符列表
 required_descriptors = [
-    'MagpieData mean CovalentRadius',
-    'Temp',
-    'MagpieData avg_dev SpaceGroupNumber',
-    '0-norm',
-    'MagpieData mean MeltingT',
-    'MagpieData avg_dev Column',
-    'MagpieData mean NValence'
-]
+        'MagpieData mean CovalentRadius',
+        'Temp',
+        'MagpieData avg_dev SpaceGroupNumber',
+        '0-norm',
+        'MagpieData mean MeltingT',
+        'MagpieData avg_dev Column',
+        'MagpieData mean NValence'
+    ]
 
 # 缓存模型加载器以避免重复加载
 @st.cache_resource(show_spinner=False, max_entries=1)  # 限制只缓存一个实例
@@ -173,253 +134,96 @@ def load_predictor():
     """缓存模型加载，避免重复加载导致内存溢出"""
     return TabularPredictor.load("./ag-20251024_075719")
 
-def create_accurate_crystal_structure(formula, crystal_system, space_group, lattice_params):
-    """
-    根据实际晶体结构数据创建准确的可视化
-    """
-    fig = go.Figure()
+def mol_to_image(mol, size=(300, 300)):
+    """将分子转换为背景颜色为 #f9f9f9f9 的SVG图像"""
+    # 创建绘图对象
+    d2d = MolDraw2DSVG(size[0], size[1])
     
-    # 解析晶格参数
-    a_match = re.search(r'a\s*=\s*([\d.]+)', lattice_params)
-    c_match = re.search(r'c\s*=\s*([\d.]+)', lattice_params)
+    # 获取绘图选项
+    draw_options = d2d.drawOptions()
     
-    a_val = float(a_match.group(1)) if a_match else 1.0
-    c_val = float(c_match.group(1)) if c_match else 1.0
+    # 设置背景颜色为 #f9f9f9f9
+    draw_options.background = '#f9f9f9'
     
-    # 根据具体材料设置原子位置
-    if "Li10GeP2S12" in formula or "LGPS" in formula:
-        # Li10GeP2S12 的实际晶体结构 (四方晶系 P4_2/nmc)
-        # 简化模型：基于实际晶体结构的特征
-        positions = [
-            # Li 原子位置 (简化)
-            (0.125, 0.125, 0.125), (0.375, 0.375, 0.125),
-            (0.625, 0.625, 0.125), (0.875, 0.875, 0.125),
-            # Ge 原子位置
-            (0.5, 0.5, 0.5),
-            # P 原子位置  
-            (0.25, 0.25, 0.25), (0.75, 0.75, 0.25),
-            # S 原子位置
-            (0.1, 0.1, 0.4), (0.4, 0.1, 0.6), (0.6, 0.4, 0.4), (0.9, 0.6, 0.6)
-        ]
-        atom_types = ['Li']*4 + ['Ge'] + ['P']*2 + ['S']*4
-        colors = ['lightblue']*4 + ['gray'] + ['orange']*2 + ['yellow']*4
-        sizes = [6]*4 + [10] + [8]*2 + [9]*4
-        
-    elif "Li7La3Zr2O12" in formula or "LLZO" in formula:
-        # LLZO 石榴石结构 (立方晶系 Ia-3d)
-        positions = [
-            # Li 位置
-            (0.125, 0.125, 0.125), (0.375, 0.375, 0.125),
-            (0.625, 0.625, 0.125), (0.875, 0.875, 0.125),
-            # La 位置
-            (0.25, 0.0, 0.25), (0.75, 0.0, 0.75),
-            # Zr 位置
-            (0.5, 0.5, 0.5),
-            # O 位置
-            (0.1, 0.2, 0.3), (0.3, 0.1, 0.2), (0.2, 0.3, 0.1)
-        ]
-        atom_types = ['Li']*4 + ['La']*2 + ['Zr'] + ['O']*3
-        colors = ['lightblue']*4 + ['green']*2 + ['silver'] + ['red']*3
-        sizes = [6]*4 + [12]*2 + [10] + [8]*3
-        
-    elif "Li3YCl6" in formula:
-        # Li3YCl6 卤化物结构 (三角晶系 R-3m)
-        positions = [
-            # Li 位置
-            (0.333, 0.667, 0.25), (0.667, 0.333, 0.75),
-            # Y 位置
-            (0.0, 0.0, 0.5),
-            # Cl 位置
-            (0.2, 0.4, 0.1), (0.4, 0.2, 0.9), (0.6, 0.8, 0.1),
-            (0.8, 0.6, 0.9), (0.1, 0.3, 0.3), (0.3, 0.1, 0.7)
-        ]
-        atom_types = ['Li']*2 + ['Y'] + ['Cl']*6
-        colors = ['lightblue']*2 + ['purple'] + ['green']*6
-        sizes = [6]*2 + [12] + [9]*6
-        
-    else:
-        # 默认通用结构
-        positions = [
-            (0.0, 0.0, 0.0), (0.5, 0.5, 0.0),
-            (0.0, 0.5, 0.5), (0.5, 0.0, 0.5)
-        ]
-        atom_types = ['A', 'B', 'C', 'D']
-        colors = ['blue', 'red', 'green', 'orange']
-        sizes = [8, 8, 8, 8]
+    # 移除所有边框和填充
+    draw_options.padding = 0.0
+    draw_options.additionalBondPadding = 0.0
     
-    # 绘制原子
-    x_vals, y_vals, z_vals = [], [], []
-    colors_vals, size_vals, text_vals = [], [], []
+    # 移除原子标签的边框
+    draw_options.annotationFontScale = 1.0
+    draw_options.addAtomIndices = False
+    draw_options.addStereoAnnotation = False
+    draw_options.bondLineWidth = 1.5
     
-    for i, (x, y, z) in enumerate(positions):
-        x_vals.append(x * a_val)
-        y_vals.append(y * a_val)
-        z_vals.append(z * (c_val if "Tetragonal" in crystal_system or "Trigonal" in crystal_system else a_val))
-        colors_vals.append(colors[i])
-        size_vals.append(sizes[i])
-        text_vals.append(atom_types[i])
+    # 禁用所有边框
+    draw_options.includeMetadata = False
     
-    # 添加原子
-    fig.add_trace(go.Scatter3d(
-        x=x_vals, y=y_vals, z=z_vals,
-        mode='markers',
-        marker=dict(
-            size=size_vals,
-            color=colors_vals,
-            opacity=0.8,
-            line=dict(width=2, color='darkgray')
-        ),
-        text=text_vals,
-        hoverinfo='text',
-        name='Atoms'
-    ))
+    # 绘制分子
+    d2d.DrawMolecule(mol)
+    d2d.FinishDrawing()
     
-    # 添加晶胞边界
-    if "Cubic" in crystal_system:
-        # 立方晶胞边界
-        edges = [
-            [(0,0,0), (a_val,0,0)], [(0,0,0), (0,a_val,0)], [(0,0,0), (0,0,a_val)],
-            [(a_val,a_val,a_val), (0,a_val,a_val)], [(a_val,a_val,a_val), (a_val,0,a_val)], [(a_val,a_val,a_val), (a_val,a_val,0)],
-            [(a_val,0,0), (a_val,a_val,0)], [(a_val,0,0), (a_val,0,a_val)],
-            [(0,a_val,0), (a_val,a_val,0)], [(0,a_val,0), (0,a_val,a_val)],
-            [(0,0,a_val), (a_val,0,a_val)], [(0,0,a_val), (0,a_val,a_val)]
-        ]
-    elif "Tetragonal" in crystal_system:
-        # 四方晶胞边界
-        edges = [
-            [(0,0,0), (a_val,0,0)], [(0,0,0), (0,a_val,0)], [(0,0,0), (0,0,c_val)],
-            [(a_val,a_val,c_val), (0,a_val,c_val)], [(a_val,a_val,c_val), (a_val,0,c_val)], [(a_val,a_val,c_val), (a_val,a_val,0)],
-            [(a_val,0,0), (a_val,a_val,0)], [(a_val,0,0), (a_val,0,c_val)],
-            [(0,a_val,0), (a_val,a_val,0)], [(0,a_val,0), (0,a_val,c_val)],
-            [(0,0,c_val), (a_val,0,c_val)], [(0,0,c_val), (0,a_val,c_val)]
-        ]
-    else:
-        # 默认立方边界
-        edges = [
-            [(0,0,0), (a_val,0,0)], [(0,0,0), (0,a_val,0)], [(0,0,0), (0,0,a_val)],
-            [(a_val,a_val,a_val), (0,a_val,a_val)], [(a_val,a_val,a_val), (a_val,0,a_val)], [(a_val,a_val,a_val), (a_val,a_val,0)],
-        ]
+    # 获取SVG内容
+    svg = d2d.GetDrawingText()
     
-    # 绘制晶胞边界
-    for edge in edges:
-        start, end = edge
-        fig.add_trace(go.Scatter3d(
-            x=[start[0], end[0]],
-            y=[start[1], end[1]], 
-            z=[start[2], end[2]],
-            mode='lines',
-            line=dict(color='black', width=3),
-            showlegend=False
-        ))
+    # 移除SVG中所有可能存在的边框元素
+    # 1. 移除黑色边框矩形
+    svg = re.sub(r'<rect [^>]*stroke:black[^>]*>', '', svg, flags=re.DOTALL)
+    svg = re.sub(r'<rect [^>]*stroke:#000000[^>]*>', '', svg, flags=re.DOTALL)
     
-    fig.update_layout(
-        title=f"Crystal Structure: {crystal_system}<br>{formula}",
-        scene=dict(
-            xaxis_title='X (Å)',
-            yaxis_title='Y (Å)',
-            zaxis_title='Z (Å)',
-            aspectmode='data',
-            camera=dict(eye=dict(x=1.5, y=1.5, z=1.5))
-        ),
-        width=600,
-        height=500,
-        margin=dict(l=0, r=0, b=0, t=40)
-    )
+    # 2. 移除所有空的rect元素
+    svg = re.sub(r'<rect[^>]*/>', '', svg, flags=re.DOTALL)
     
-    return fig
+    # 3. 确保viewBox正确设置
+    if 'viewBox' in svg:
+        # 设置新的viewBox以移除边距
+        svg = re.sub(r'viewBox="[^"]+"', f'viewBox="0 0 {size[0]} {size[1]}"', svg)
+    
+    return svg
 
-def create_structure_comparison(formula, crystal_info):
-    """
-    创建结构对比图，显示实际晶体结构特征
-    """
-    fig = make_subplots(
-        rows=1, cols=2,
-        subplot_titles=['Crystal Structure Model', 'Structural Features'],
-        specs=[[{'type': 'scatter3d'}, {'type': 'bar'}]]
-    )
-    
-    # 左侧：晶体结构模型
-    crystal_fig = create_accurate_crystal_structure(
-        formula, 
-        crystal_info['crystal_system'],
-        crystal_info['space_group'], 
-        crystal_info['lattice_parameters']
-    )
-    
-    for trace in crystal_fig.data:
-        fig.add_trace(trace, row=1, col=1)
-    
-    # 右侧：结构特征条形图
-    features = {
-        'Symmetry': 8,
-        'Coordination': 6, 
-        'Channel Size': 7,
-        'Framework': 9
-    }
-    
-    fig.add_trace(go.Bar(
-        x=list(features.keys()),
-        y=list(features.values()),
-        marker_color=['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4']
-    ), row=1, col=2)
-    
-    fig.update_layout(
-        title_text=f"Structural Analysis: {formula}",
-        showlegend=False,
-        height=400
-    )
-    
-    fig.update_xaxes(title_text="Structural Features", row=1, col=2)
-    fig.update_yaxes(title_text="Score", row=1, col=2)
-    
-    return fig
 
-# 晶体结构数据库（增强版）
+# 晶体结构数据库
 crystal_structures = {
     "Li7La3Zr2O12": {
         "crystal_system": "Cubic",
         "space_group": "Ia-3d",
         "lattice_parameters": "a = 12.97 Å",
         "density": "5.08 g/cm³",
-        "reference": "Murugan et al., Angew. Chem. Int. Ed. (2007)",
-        "color": "#FF6B6B",
-        "description": "Garnet-type structure with 3D Li+ migration pathways"
+        "reference": "Murugan et al., Angew. Chem. Int. Ed. (2007)"
     },
     "Li10GeP2S12": {
         "crystal_system": "Tetragonal", 
         "space_group": "P4_2/nmc",
         "lattice_parameters": "a = 8.72 Å, c = 12.54 Å",
         "density": "2.04 g/cm³",
-        "reference": "Kamaya et al., Nat. Mater. (2011)",
-        "color": "#4ECDC4",
-        "description": "Layered sulfide structure with 1D Li+ channels"
+        "reference": "Kamaya et al., Nat. Mater. (2011)"
     },
     "Li3YCl6": {
         "crystal_system": "Trigonal",
         "space_group": "R-3m", 
         "lattice_parameters": "a = 6.62 Å, c = 18.24 Å",
         "density": "2.67 g/cm³",
-        "reference": "Asano et al., Adv. Mater. (2018)",
-        "color": "#45B7D1",
-        "description": "Layered halide structure with 2D Li+ migration"
+        "reference": "Asano et al., Adv. Mater. (2018)"
     },
     "Li3OCl": {
         "crystal_system": "Cubic",
         "space_group": "Pm-3m",
         "lattice_parameters": "a = 3.92 Å",
         "density": "2.41 g/cm³", 
-        "reference": "Zhao et al., Nat. Commun. (2016)",
-        "color": "#96CEB4",
-        "description": "Anti-perovskite structure with 3D ionic conduction"
+        "reference": "Zhao et al., Nat. Commun. (2016)"
+    },
+	"Li3OCl": {
+        "crystal_system": "Cubic",
+        "space_group": "Pm-3m",
+        "lattice_parameters": "a = 3.92 Å",
+        "density": "2.41 g/cm³", 
+        "reference": "Zhao et al., Nat. Commun. (2016)"
     },
     "Li1+xAlxTi2-x(PO4)3": {
         "crystal_system": "Rhombohedral",
         "space_group": "R-3c",
         "lattice_parameters": "a = 8.51 Å, c = 20.84 Å",
         "density": "2.94 g/cm³",
-        "reference": "Aono et al., J. Electrochem. Soc. (1990)",
-        "color": "#FECA57",
-        "description": "NASICON-type framework with 3D conduction pathways"
+        "reference": "Aono et al., J. Electrochem. Soc. (1990)"
     }
 }
 
@@ -434,16 +238,14 @@ def get_crystal_structure_info(formula):
         if formula in key or key in formula:
             return crystal_structures[key]
     
-    # 根据材料类型推断
+     # 根据材料类型推断
     if "Li" in formula and ("La" in formula or "Zr" in formula):
         return {
             "crystal_system": "Cubic/Tetragonal",
             "space_group": "Ia-3d/P4_2/nmc",
             "lattice_parameters": "~12.9-13.0 Å",
             "density": "~4.5-5.5 g/cm³",
-            "reference": "Typical Garnet Structure",
-            "color": "#FF9FF3",
-            "description": "Garnet-type oxide structure"
+            "reference": "Typical Garnet Structure"
         }
     elif "Li" in formula and ("S" in formula or "P" in formula):
         return {
@@ -451,9 +253,7 @@ def get_crystal_structure_info(formula):
             "space_group": "P4_2/nmc/Pnma",
             "lattice_parameters": "a~8.7 Å, c~12.5 Å",
             "density": "~2.0-2.5 g/cm³",
-            "reference": "Typical Sulfide Structure",
-            "color": "#54A0FF",
-            "description": "Sulfide-based ionic conductor"
+            "reference": "Typical Sulfide Structure"
         }
     elif "Li" in formula and ("Cl" in formula or "Br" in formula or "I" in formula):
         return {
@@ -461,9 +261,7 @@ def get_crystal_structure_info(formula):
             "space_group": "R-3m/P6_3/mmc", 
             "lattice_parameters": "a~6.6 Å, c~18.2 Å",
             "density": "~2.5-3.0 g/cm³",
-            "reference": "Typical Halide Structure",
-            "color": "#00D2D3",
-            "description": "Halide-based solid electrolyte"
+            "reference": "Typical Halide Structure"
         }
     else:
         return {
@@ -471,11 +269,9 @@ def get_crystal_structure_info(formula):
             "space_group": "Unknown", 
             "lattice_parameters": "Unknown",
             "density": "Unknown",
-            "reference": "Structure data not available",
-            "color": "#C8D6E5",
-            "description": "Structure information not available"
+            "reference": "Structure data not available"
         }
-
+			
 # 材料特征计算函数
 def calculate_material_features(formula):
     """计算材料的组成特征"""
@@ -525,8 +321,8 @@ def calculate_material_features(formula):
         import traceback
         print(traceback.format_exc())
         return {'Formula': formula}
-
-# 过滤特征 - 只显示指定的七个特征
+		
+#过滤特征（仅展示非零数值列）
 def filter_selected_features(features_dict, selected_descriptors, temperature):
     """只显示选定的七个特征"""
     filtered_features = {}
@@ -545,7 +341,9 @@ def filter_selected_features(features_dict, selected_descriptors, temperature):
     
     return filtered_features
 
-# 自动匹配模型特征
+
+
+#自动匹配模型特征
 def align_features_with_model(features_dict, predictor, temperature, formula, material_system):
     if predictor is None:
         return pd.DataFrame([features_dict])
@@ -575,69 +373,6 @@ def align_features_with_model(features_dict, predictor, temperature, formula, ma
 
     return pd.DataFrame([aligned])
 
-def preprocess_material_data(formula, material_system, temperature, crystal_info):
-    """
-    预处理材料数据，确保晶体结构信息完整和温度有效
-    """
-    processed = {
-        'formula': formula,
-        'material_type': material_system,
-        'temperature': temperature,
-        'crystal_info': crystal_info
-    }
-    
-    # 验证和设置温度
-    if temperature == 0:
-        processed['temperature'] = 298
-        st.warning("警告：温度值为0，已使用默认值298K")
-    
-    # 确保晶体结构信息完整
-    if not crystal_info:
-        processed['crystal_info'] = get_crystal_structure_info(formula)
-    
-    return processed
-
-def format_prediction_output(prediction_results, crystal_info, temperature, formula, material_system):
-    """
-    格式化预测输出，确保晶体结构信息清晰显示
-    """
-    output_lines = []
-    
-    # 标题
-    output_lines.append("=" * 60)
-    output_lines.append("           MATERIAL PROPERTY PREDICTION RESULTS")
-    output_lines.append("=" * 60)
-    
-    # 晶体结构信息部分
-    output_lines.append("\n📐 CRYSTAL STRUCTURE INFORMATION")
-    output_lines.append("-" * 40)
-    output_lines.append(f"Material: {formula}")
-    output_lines.append(f"Type: {material_system}")
-    output_lines.append(f"Crystal System: {crystal_info.get('crystal_system', 'N/A')}")
-    output_lines.append(f"Space Group: {crystal_info.get('space_group', 'N/A')}")
-    output_lines.append(f"Lattice Parameters: {crystal_info.get('lattice_parameters', 'N/A')}")
-    output_lines.append(f"Density: {crystal_info.get('density', 'N/A')}")
-    output_lines.append(f"Reference: {crystal_info.get('reference', 'N/A')}")
-    
-    # 实验条件
-    output_lines.append("\n🌡️ EXPERIMENTAL CONDITIONS")
-    output_lines.append("-" * 40)
-    output_lines.append(f"Temperature: {temperature} K")
-    
-    # 预测结果
-    if prediction_results and len(prediction_results) > 0:
-        output_lines.append("\n📊 PREDICTION RESULTS")
-        output_lines.append("-" * 40)
-        
-        # 显示每个模型的预测结果
-        for model_name, prediction in prediction_results.items():
-            if model_name != "status" and prediction != "Error":
-                output_lines.append(f"{model_name}: {prediction:.6f} S/cm")
-    
-    output_lines.append("\n" + "=" * 60)
-    
-    return "\n".join(output_lines)
-
 # 如果点击提交按钮
 if submit_button:
     if not formula_input:
@@ -645,29 +380,18 @@ if submit_button:
     else:
         with st.spinner("Processing material and making predictions..."):
             try:
-                # 显示材料信息
+               # 显示材料信息
                 material_info = material_systems[material_system]
                     
                 col1, col2, col3 = st.columns(3)
                 col1.metric("Material Type", material_system)
                 col2.metric("Crystal Structure", material_info["Type"])
                 col3.metric("Temperature", f"{temperature} K")
-                
-                # 获取晶体结构信息
+
+				# 显示晶体结构信息
+                st.subheader("📐 Crystal Structure Information")
                 crystal_info = get_crystal_structure_info(formula_input)
                 
-                # 预处理数据（包含温度验证）
-                processed_data = preprocess_material_data(
-                    formula_input, material_system, temperature, crystal_info
-                )
-                
-                # 使用处理后的温度
-                actual_temperature = processed_data['temperature']
-                if temperature != actual_temperature:
-                    st.info(f"Temperature adjusted from {temperature}K to {actual_temperature}K for prediction")
-                
-                # 显示晶体结构信息
-                st.subheader("📐 Crystal Structure Information")
                 with st.container():
                     st.markdown(f"""
                     <div class='crystal-structure-info'>
@@ -676,59 +400,38 @@ if submit_button:
                     <p><strong>Space Group:</strong> {crystal_info['space_group']}</p>
                     <p><strong>Lattice Parameters:</strong> {crystal_info['lattice_parameters']}</p>
                     <p><strong>Density:</strong> {crystal_info['density']}</p>
-                    <p><strong>Description:</strong> {crystal_info.get('description', 'N/A')}</p>
                     <p><strong>Reference:</strong> <em>{crystal_info['reference']}</em></p>
                     </div>
                     """, unsafe_allow_html=True)
-                
-                # 显示准确的晶体结构可视化
-                st.subheader("🔬 Accurate Crystal Structure Visualization")
-                with st.container():
-                    st.markdown(f"""
-                    <div class='crystal-visualization'>
-                    <h4>3D Crystal Structure Model Based on Experimental Data</h4>
-                    <p><em>This visualization shows the actual atomic arrangement based on crystallographic data from literature.</em></p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    # 创建准确的晶体结构可视化
-                    accurate_fig = create_accurate_crystal_structure(
-                        formula_input,
-                        crystal_info['crystal_system'],
-                        crystal_info['space_group'],
-                        crystal_info['lattice_parameters']
-                    )
-                    st.plotly_chart(accurate_fig, use_container_width=True)
-                    
-                    # 显示结构对比
-                    st.info(f"""
-                    **Crystal Structure Features:**
-                    - **Crystal System:** {crystal_info['crystal_system']}
-                    - **Space Group:** {crystal_info['space_group']}
-                    - **Lattice Parameters:** {crystal_info['lattice_parameters']}
-                    - **Structure Type:** {crystal_info.get('description', 'N/A')}
-                    """)
-                        
+						
                 # 计算材料特征
                 features = calculate_material_features(formula_input)
                 st.write(f"✅ Total features extracted: {len(features)}")
-                
-                # 只显示选定的七个特征（使用实际温度）
-                selected_features = filter_selected_features(features, required_descriptors, actual_temperature)
+
+				# 只显示选定的七个特征
+                selected_features = filter_selected_features(features, required_descriptors, temperature)
+				
                 feature_df = pd.DataFrame([selected_features])
-                
-                st.subheader("Selected Material Features")
-                st.dataframe(feature_df)
-            
+				
+                st.subheader("Extracted Material Features (non-zero numeric columns)")
+                st.dataframe(filtered_df)
+			
                 if features:
-                    # 创建输入数据（使用实际温度）
+                    # 显示特征信息
+                   
+                    feature_df = pd.DataFrame([selected_features])
+                 
+                   
+                    
+					
+                    # 创建输入数据
                     input_data = {
                         "Formula": [formula_input],
-                        "Material_Type": [material_system],
-                        "Temperature_K": [actual_temperature],
+                         "Material_Type": [material_system],
+                         "Temperature_K": [temperature],
                     }
                     
-                    # 添加数值特征
+					# 添加数值特征
                     numeric_features = {}
                     for feature_name in required_descriptors:
                         if feature_name in features:
@@ -740,6 +443,12 @@ if submit_button:
                         
                     input_df = pd.DataFrame(input_data)
                 
+                    # 显示输入数据
+                    #st.write("Input Data for Prediction:")
+                    #st.dataframe(input_df)
+
+                
+                
                 # 加载模型并预测
                 try:
                     # 使用缓存的模型加载方式
@@ -747,40 +456,29 @@ if submit_button:
                     
                     # 只使用最关键的模型进行预测，减少内存占用
                     essential_models = ['CatBoost',
-                                        'ExtraTreesMSE',
-                                        'LightGBM',
-                                        'KNeighborsDist',
-                                        'WeightedEnsemble_L2',
-                                        'XGBoost']
-                                        
+  					                    'ExtraTreesMSE',
+										'LightGBM',
+										'KNeighborsDist',
+										'WeightedEnsemble_L2',
+										'XGBoost']
+										
                     predict_df = input_df.copy()
                     predictions_dict = {}
                     
                     for model in essential_models:
                         try:
                             predictions = predictor.predict(predict_df, model=model)
-                            predictions_dict[model] = predictions.iloc[0] if hasattr(predictions, 'iloc') else predictions[0]
+                            predictions_dict[model] = predictions
                         except Exception as model_error:
                             st.warning(f"Model {model} prediction failed: {str(model_error)}")
                             predictions_dict[model] = "Error"
 
-                    # 显示预测结果
                     # 显示预测结果
                     st.write("Prediction Results (Essential Models):")
                     st.markdown(
                         "**Note:** WeightedEnsemble_L2 is a meta-model combining predictions from other models.")
                     results_df = pd.DataFrame(predictions_dict)
                     st.dataframe(results_df.iloc[:1,:])
-                   
-                    
-                   
-                    
-                    # 显示格式化的完整输出
-                  
-                    formatted_output = format_prediction_output(
-                        predictions_dict, crystal_info, actual_temperature, formula_input, material_system
-                    )
-                    st.markdown(f"```\n{formatted_output}\n```")
                     
                     # 主动释放内存
                     del predictor
@@ -791,5 +489,20 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
