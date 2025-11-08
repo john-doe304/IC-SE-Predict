@@ -773,8 +773,7 @@ if submit_button:
                     for model_name, prediction in predictions_dict.items():
                         if prediction != "Error":
                             results_data.append({
-                                "Model": model_name,
-                                "Ionic Conductivity (S/cm)": f"{prediction:.6f}"
+                                "Model": model_name
                             })
                     
                     if results_data:
@@ -797,3 +796,4 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
