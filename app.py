@@ -422,17 +422,20 @@ if submit_button:
                 # 计算材料特征
                 features = calculate_material_features(formula_input)
                 st.write(f"✅ Total features extracted: {len(features)}")
-                feature_df = pd.DataFrame([features])
-                filtered_df = filter_features(feature_df)
+
+				# 只显示选定的七个特征
+                selected_features = filter_selected_features(features, required_descriptors, temperature)
+				
+                feature_df = pd.DataFrame([selected_features])
+				
                 st.subheader("Extracted Material Features (non-zero numeric columns)")
                 st.dataframe(filtered_df)
 			
                 if features:
                     # 显示特征信息
                    
-                    feature_df = pd.DataFrame([features])
-                    filtered_features = filter_features(feature_df)
-                        
+                    feature_df = pd.DataFrame([selected_features])
+                 
                    
                     
 					
@@ -501,6 +504,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
 
 
