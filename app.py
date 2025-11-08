@@ -74,6 +74,13 @@ st.markdown(
         margin: 10px 0;
         border-left: 4px solid #4CAF50;
     }
+    .prediction-results {
+        background-color: #f8fff0;
+        padding: 15px;
+        border-radius: 10px;
+        margin: 10px 0;
+        border-left: 4px solid #FF6B00;
+    }
      /* 针对小屏幕的优化 */
     @media (max-width: 768px) {
         .rounded-container {
@@ -386,6 +393,69 @@ def align_features_with_model(features_dict, predictor, temperature, formula, ma
 
     return pd.DataFrame([aligned])
 
+def preprocess_material_data(formula, material_system, temperature, crystal_info):
+    """
+    预处理材料数据，确保晶体结构信息完整和温度有效
+    """
+    processed = {
+        'formula': formula,
+        'material_type': material_system,
+        'temperature': temperature,
+        'crystal_info': crystal_info
+    }
+    
+    # 验证和设置温度
+    if temperature == 0:
+        processed['temperature'] = 298
+        st.warning("警告：温度值为0，已使用默认值298K")
+    
+    # 确保晶体结构信息完整
+    if not crystal_info:
+        processed['crystal_info'] = get_crystal_structure_info(formula)
+    
+    return processed
+
+def format_prediction_output(prediction_results, crystal_info, temperature, formula, material_system):
+    """
+    格式化预测输出，确保晶体结构信息清晰显示
+    """
+    output_lines = []
+    
+    # 标题
+    output_lines.append("=" * 60)
+    output_lines.append("           MATERIAL PROPERTY PREDICTION RESULTS")
+    output_lines.append("=" * 60)
+    
+    # 晶体结构信息部分
+    output_lines.append("\n📐 CRYSTAL STRUCTURE INFORMATION")
+    output_lines.append("-" * 40)
+    output_lines.append(f"Material: {formula}")
+    output_lines.append(f"Type: {material_system}")
+    output_lines.append(f"Crystal System: {crystal_info.get('crystal_system', 'N/A')}")
+    output_lines.append(f"Space Group: {crystal_info.get('space_group', 'N/A')}")
+    output_lines.append(f"Lattice Parameters: {crystal_info.get('lattice_parameters', 'N/A')}")
+    output_lines.append(f"Density: {crystal_info.get('density', 'N/A')}")
+    output_lines.append(f"Reference: {crystal_info.get('reference', 'N/A')}")
+    
+    # 实验条件
+    output_lines.append("\n🌡️ EXPERIMENTAL CONDITIONS")
+    output_lines.append("-" * 40)
+    output_lines.append(f"Temperature: {temperature} K")
+    
+    # 预测结果
+    if prediction_results and len(prediction_results) > 0:
+        output_lines.append("\n📊 PREDICTION RESULTS")
+        output_lines.append("-" * 40)
+        
+        # 显示每个模型的预测结果
+        for model_name, prediction in prediction_results.items():
+            if model_name != "status" and prediction != "Error":
+                output_lines.append(f"{model_name}: {prediction:.6f} S/cm")
+    
+    output_lines.append("\n" + "=" * 60)
+    
+    return "\n".join(output_lines)
+
 # 如果点击提交按钮
 if submit_button:
     if not formula_input:
@@ -401,10 +471,21 @@ if submit_button:
                 col2.metric("Crystal Structure", material_info["Type"])
                 col3.metric("Temperature", f"{temperature} K")
                 
-                # 显示晶体结构信息
-                st.subheader("📐 Crystal Structure Information")
+                # 获取晶体结构信息
                 crystal_info = get_crystal_structure_info(formula_input)
                 
+                # 预处理数据（包含温度验证）
+                processed_data = preprocess_material_data(
+                    formula_input, material_system, temperature, crystal_info
+                )
+                
+                # 使用处理后的温度
+                actual_temperature = processed_data['temperature']
+                if temperature != actual_temperature:
+                    st.info(f"Temperature adjusted from {temperature}K to {actual_temperature}K for prediction")
+                
+                # 显示晶体结构信息
+                st.subheader("📐 Crystal Structure Information")
                 with st.container():
                     st.markdown(f"""
                     <div class='crystal-structure-info'>
@@ -421,19 +502,19 @@ if submit_button:
                 features = calculate_material_features(formula_input)
                 st.write(f"✅ Total features extracted: {len(features)}")
                 
-                # 只显示选定的七个特征
-                selected_features = filter_selected_features(features, required_descriptors, temperature)
+                # 只显示选定的七个特征（使用实际温度）
+                selected_features = filter_selected_features(features, required_descriptors, actual_temperature)
                 feature_df = pd.DataFrame([selected_features])
                 
                 st.subheader("Selected Material Features")
                 st.dataframe(feature_df)
             
                 if features:
-                    # 创建输入数据
+                    # 创建输入数据（使用实际温度）
                     input_data = {
                         "Formula": [formula_input],
                         "Material_Type": [material_system],
-                        "Temperature_K": [temperature],
+                        "Temperature_K": [actual_temperature],
                     }
                     
                     # 添加数值特征
@@ -467,17 +548,35 @@ if submit_button:
                     for model in essential_models:
                         try:
                             predictions = predictor.predict(predict_df, model=model)
-                            predictions_dict[model] = predictions
+                            predictions_dict[model] = predictions.iloc[0] if hasattr(predictions, 'iloc') else predictions[0]
                         except Exception as model_error:
                             st.warning(f"Model {model} prediction failed: {str(model_error)}")
                             predictions_dict[model] = "Error"
 
                     # 显示预测结果
-                    st.write("Prediction Results (Essential Models):")
+                    st.subheader("🎯 Prediction Results")
                     st.markdown(
                         "**Note:** WeightedEnsemble_L2 is a meta-model combining predictions from other models.")
-                    results_df = pd.DataFrame(predictions_dict)
-                    st.dataframe(results_df.iloc[:1,:])
+                    
+                    # 创建预测结果表格
+                    results_data = []
+                    for model_name, prediction in predictions_dict.items():
+                        if prediction != "Error":
+                            results_data.append({
+                                "Model": model_name,
+                                "Ionic Conductivity (S/cm)": f"{prediction:.6f}"
+                            })
+                    
+                    if results_data:
+                        results_df = pd.DataFrame(results_data)
+                        st.dataframe(results_df)
+                    
+                    # 显示格式化的完整输出
+                    st.subheader("📋 Complete Prediction Report")
+                    formatted_output = format_prediction_output(
+                        predictions_dict, crystal_info, actual_temperature, formula_input, material_system
+                    )
+                    st.markdown(f"```\n{formatted_output}\n```")
                     
                     # 主动释放内存
                     del predictor
