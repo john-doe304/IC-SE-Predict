@@ -15,6 +15,9 @@ import gc  # 添加垃圾回收模块
 import re  # 添加正则表达式模块用于处理SVG
 from tqdm import tqdm 
 import numpy as np
+import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
 
 
 # 添加 CSS 样式
@@ -73,6 +76,13 @@ st.markdown(
         border-radius: 10px;
         margin: 10px 0;
         border-left: 4px solid #4CAF50;
+    }
+    .crystal-visualization {
+        background-color: #fff8f0;
+        padding: 15px;
+        border-radius: 10px;
+        margin: 10px 0;
+        border-left: 4px solid #FF6B00;
     }
     .prediction-results {
         background-color: #f8fff0;
@@ -164,51 +174,219 @@ def load_predictor():
     """缓存模型加载，避免重复加载导致内存溢出"""
     return TabularPredictor.load("./ag-20251024_075719")
 
-def mol_to_image(mol, size=(300, 300)):
-    """将分子转换为背景颜色为 #f9f9f9f9 的SVG图像"""
-    # 创建绘图对象
-    d2d = MolDraw2DSVG(size[0], size[1])
+def create_crystal_structure_visualization(crystal_system, lattice_params, formula):
+    """
+    创建晶体结构可视化
+    """
+    fig = go.Figure()
     
-    # 获取绘图选项
-    draw_options = d2d.drawOptions()
+    # 根据晶体系统设置不同的可视化
+    if "Cubic" in crystal_system:
+        # 立方晶系
+        x = [0, 1, 1, 0, 0, 1, 1, 0]
+        y = [0, 0, 1, 1, 0, 0, 1, 1]
+        z = [0, 0, 0, 0, 1, 1, 1, 1]
+        
+        # 绘制立方体边
+        edges = [
+            [0,1], [1,2], [2,3], [3,0],  # 底面
+            [4,5], [5,6], [6,7], [7,4],  # 顶面
+            [0,4], [1,5], [2,6], [3,7]   # 侧面
+        ]
+        
+        for edge in edges:
+            fig.add_trace(go.Scatter3d(
+                x=[x[edge[0]], x[edge[1]]],
+                y=[y[edge[0]], y[edge[1]]],
+                z=[z[edge[0]], z[edge[1]]],
+                mode='lines',
+                line=dict(color='blue', width=4),
+                showlegend=False
+            ))
+        
+        # 添加原子位置
+        fig.add_trace(go.Scatter3d(
+            x=x, y=y, z=z,
+            mode='markers',
+            marker=dict(size=8, color='red'),
+            name='Atoms'
+        ))
+        
+    elif "Tetragonal" in crystal_system:
+        # 四方晶系
+        a, c = 1.0, 1.5  # 不同的a和c参数
+        x = [0, a, a, 0, 0, a, a, 0]
+        y = [0, 0, a, a, 0, 0, a, a]
+        z = [0, 0, 0, 0, c, c, c, c]
+        
+        edges = [
+            [0,1], [1,2], [2,3], [3,0],
+            [4,5], [5,6], [6,7], [7,4],
+            [0,4], [1,5], [2,6], [3,7]
+        ]
+        
+        for edge in edges:
+            fig.add_trace(go.Scatter3d(
+                x=[x[edge[0]], x[edge[1]]],
+                y=[y[edge[0]], y[edge[1]]],
+                z=[z[edge[0]], z[edge[1]]],
+                mode='lines',
+                line=dict(color='green', width=4),
+                showlegend=False
+            ))
+        
+        fig.add_trace(go.Scatter3d(
+            x=x, y=y, z=z,
+            mode='markers',
+            marker=dict(size=8, color='orange'),
+            name='Atoms'
+        ))
+        
+    elif "Trigonal" in crystal_system or "Rhombohedral" in crystal_system:
+        # 三角/菱方晶系
+        import math
+        angles = [0, 2*math.pi/3, 4*math.pi/3]
+        x = [math.cos(angle) for angle in angles] + [math.cos(angle) for angle in angles]
+        y = [math.sin(angle) for angle in angles] + [math.sin(angle) for angle in angles]
+        z = [0,0,0,1,1,1]
+        
+        # 绘制三角棱柱
+        edges = [
+            [0,1], [1,2], [2,0],  # 底面三角形
+            [3,4], [4,5], [5,3],  # 顶面三角形
+            [0,3], [1,4], [2,5]   # 侧面
+        ]
+        
+        for edge in edges:
+            fig.add_trace(go.Scatter3d(
+                x=[x[edge[0]], x[edge[1]]],
+                y=[y[edge[0]], y[edge[1]]],
+                z=[z[edge[0]], z[edge[1]]],
+                mode='lines',
+                line=dict(color='purple', width=4),
+                showlegend=False
+            ))
+        
+        fig.add_trace(go.Scatter3d(
+            x=x, y=y, z=z,
+            mode='markers',
+            marker=dict(size=8, color='magenta'),
+            name='Atoms'
+        ))
+        
+    else:
+        # 默认立方晶系
+        x = [0, 1, 1, 0, 0, 1, 1, 0]
+        y = [0, 0, 1, 1, 0, 0, 1, 1]
+        z = [0, 0, 0, 0, 1, 1, 1, 1]
+        
+        edges = [
+            [0,1], [1,2], [2,3], [3,0],
+            [4,5], [5,6], [6,7], [7,4],
+            [0,4], [1,5], [2,6], [3,7]
+        ]
+        
+        for edge in edges:
+            fig.add_trace(go.Scatter3d(
+                x=[x[edge[0]], x[edge[1]]],
+                y=[y[edge[0]], y[edge[1]]],
+                z=[z[edge[0]], z[edge[1]]],
+                mode='lines',
+                line=dict(color='gray', width=4),
+                showlegend=False
+            ))
+        
+        fig.add_trace(go.Scatter3d(
+            x=x, y=y, z=z,
+            mode='markers',
+            marker=dict(size=8, color='blue'),
+            name='Atoms'
+        ))
     
-    # 设置背景颜色为 #f9f9f9f9
-    draw_options.background = '#f9f9f9'
+    fig.update_layout(
+        title=f"Crystal Structure: {crystal_system} - {formula}",
+        scene=dict(
+            xaxis_title='X',
+            yaxis_title='Y',
+            zaxis_title='Z',
+            aspectmode='data'
+        ),
+        width=500,
+        height=400,
+        margin=dict(l=0, r=0, b=0, t=40)
+    )
     
-    # 移除所有边框和填充
-    draw_options.padding = 0.0
-    draw_options.additionalBondPadding = 0.0
+    return fig
+
+def create_unit_cell_diagram(crystal_system, lattice_params):
+    """
+    创建晶胞示意图
+    """
+    fig = go.Figure()
     
-    # 移除原子标签的边框
-    draw_options.annotationFontScale = 1.0
-    draw_options.addAtomIndices = False
-    draw_options.addStereoAnnotation = False
-    draw_options.bondLineWidth = 1.5
+    # 解析晶格参数
+    a_match = re.search(r'a\s*=\s*([\d.]+)', lattice_params)
+    c_match = re.search(r'c\s*=\s*([\d.]+)', lattice_params)
     
-    # 禁用所有边框
-    draw_options.includeMetadata = False
+    a_val = float(a_match.group(1)) if a_match else 1.0
+    c_val = float(c_match.group(1)) if c_match else (1.5 if "Tetragonal" in crystal_system or "Trigonal" in crystal_system else 1.0)
     
-    # 绘制分子
-    d2d.DrawMolecule(mol)
-    d2d.FinishDrawing()
+    # 根据晶体系统绘制不同的晶胞
+    if "Cubic" in crystal_system:
+        # 立方晶胞
+        fig.add_trace(go.Mesh3d(
+            x=[0, a_val, a_val, 0, 0, a_val, a_val, 0],
+            y=[0, 0, a_val, a_val, 0, 0, a_val, a_val],
+            z=[0, 0, 0, 0, a_val, a_val, a_val, a_val],
+            i=[0, 0, 0, 2],
+            j=[1, 2, 3, 3],
+            k=[2, 3, 7, 7],
+            opacity=0.3,
+            color='lightblue'
+        ))
+        
+    elif "Tetragonal" in crystal_system:
+        # 四方晶胞
+        fig.add_trace(go.Mesh3d(
+            x=[0, a_val, a_val, 0, 0, a_val, a_val, 0],
+            y=[0, 0, a_val, a_val, 0, 0, a_val, a_val],
+            z=[0, 0, 0, 0, c_val, c_val, c_val, c_val],
+            i=[0, 0, 0, 2],
+            j=[1, 2, 3, 3],
+            k=[2, 3, 7, 7],
+            opacity=0.3,
+            color='lightgreen'
+        ))
+        
+    elif "Trigonal" in crystal_system:
+        # 三角晶胞
+        import math
+        # 简化的三角晶胞表示
+        fig.add_trace(go.Mesh3d(
+            x=[0, a_val, a_val/2, 0, a_val, a_val/2],
+            y=[0, 0, a_val*math.sqrt(3)/2, 0, 0, a_val*math.sqrt(3)/2],
+            z=[0, 0, 0, c_val, c_val, c_val],
+            i=[0, 0, 1],
+            j=[1, 2, 2],
+            k=[2, 4, 5],
+            opacity=0.3,
+            color='lavender'
+        ))
     
-    # 获取SVG内容
-    svg = d2d.GetDrawingText()
+    # 添加晶胞边界
+    fig.update_layout(
+        title=f"Unit Cell - {crystal_system}",
+        scene=dict(
+            xaxis_title='a (Å)',
+            yaxis_title='b (Å)',
+            zaxis_title='c (Å)',
+            aspectmode='data'
+        ),
+        width=400,
+        height=300
+    )
     
-    # 移除SVG中所有可能存在的边框元素
-    # 1. 移除黑色边框矩形
-    svg = re.sub(r'<rect [^>]*stroke:black[^>]*>', '', svg, flags=re.DOTALL)
-    svg = re.sub(r'<rect [^>]*stroke:#000000[^>]*>', '', svg, flags=re.DOTALL)
-    
-    # 2. 移除所有空的rect元素
-    svg = re.sub(r'<rect[^>]*/>', '', svg, flags=re.DOTALL)
-    
-    # 3. 确保viewBox正确设置
-    if 'viewBox' in svg:
-        # 设置新的viewBox以移除边距
-        svg = re.sub(r'viewBox="[^"]+"', f'viewBox="0 0 {size[0]} {size[1]}"', svg)
-    
-    return svg
+    return fig
 
 # 晶体结构数据库
 crystal_structures = {
@@ -217,35 +395,40 @@ crystal_structures = {
         "space_group": "Ia-3d",
         "lattice_parameters": "a = 12.97 Å",
         "density": "5.08 g/cm³",
-        "reference": "Murugan et al., Angew. Chem. Int. Ed. (2007)"
+        "reference": "Murugan et al., Angew. Chem. Int. Ed. (2007)",
+        "color": "#FF6B6B"
     },
     "Li10GeP2S12": {
         "crystal_system": "Tetragonal", 
         "space_group": "P4_2/nmc",
         "lattice_parameters": "a = 8.72 Å, c = 12.54 Å",
         "density": "2.04 g/cm³",
-        "reference": "Kamaya et al., Nat. Mater. (2011)"
+        "reference": "Kamaya et al., Nat. Mater. (2011)",
+        "color": "#4ECDC4"
     },
     "Li3YCl6": {
         "crystal_system": "Trigonal",
         "space_group": "R-3m", 
         "lattice_parameters": "a = 6.62 Å, c = 18.24 Å",
         "density": "2.67 g/cm³",
-        "reference": "Asano et al., Adv. Mater. (2018)"
+        "reference": "Asano et al., Adv. Mater. (2018)",
+        "color": "#45B7D1"
     },
     "Li3OCl": {
         "crystal_system": "Cubic",
         "space_group": "Pm-3m",
         "lattice_parameters": "a = 3.92 Å",
         "density": "2.41 g/cm³", 
-        "reference": "Zhao et al., Nat. Commun. (2016)"
+        "reference": "Zhao et al., Nat. Commun. (2016)",
+        "color": "#96CEB4"
     },
     "Li1+xAlxTi2-x(PO4)3": {
         "crystal_system": "Rhombohedral",
         "space_group": "R-3c",
         "lattice_parameters": "a = 8.51 Å, c = 20.84 Å",
         "density": "2.94 g/cm³",
-        "reference": "Aono et al., J. Electrochem. Soc. (1990)"
+        "reference": "Aono et al., J. Electrochem. Soc. (1990)",
+        "color": "#FECA57"
     }
 }
 
@@ -267,7 +450,8 @@ def get_crystal_structure_info(formula):
             "space_group": "Ia-3d/P4_2/nmc",
             "lattice_parameters": "~12.9-13.0 Å",
             "density": "~4.5-5.5 g/cm³",
-            "reference": "Typical Garnet Structure"
+            "reference": "Typical Garnet Structure",
+            "color": "#FF9FF3"
         }
     elif "Li" in formula and ("S" in formula or "P" in formula):
         return {
@@ -275,7 +459,8 @@ def get_crystal_structure_info(formula):
             "space_group": "P4_2/nmc/Pnma",
             "lattice_parameters": "a~8.7 Å, c~12.5 Å",
             "density": "~2.0-2.5 g/cm³",
-            "reference": "Typical Sulfide Structure"
+            "reference": "Typical Sulfide Structure",
+            "color": "#54A0FF"
         }
     elif "Li" in formula and ("Cl" in formula or "Br" in formula or "I" in formula):
         return {
@@ -283,7 +468,8 @@ def get_crystal_structure_info(formula):
             "space_group": "R-3m/P6_3/mmc", 
             "lattice_parameters": "a~6.6 Å, c~18.2 Å",
             "density": "~2.5-3.0 g/cm³",
-            "reference": "Typical Halide Structure"
+            "reference": "Typical Halide Structure",
+            "color": "#00D2D3"
         }
     else:
         return {
@@ -291,7 +477,8 @@ def get_crystal_structure_info(formula):
             "space_group": "Unknown", 
             "lattice_parameters": "Unknown",
             "density": "Unknown",
-            "reference": "Structure data not available"
+            "reference": "Structure data not available",
+            "color": "#C8D6E5"
         }
 
 # 材料特征计算函数
@@ -497,6 +684,43 @@ if submit_button:
                     <p><strong>Reference:</strong> <em>{crystal_info['reference']}</em></p>
                     </div>
                     """, unsafe_allow_html=True)
+                
+                # 显示晶体结构可视化
+                st.subheader("🔬 Crystal Structure Visualization")
+                with st.container():
+                    st.markdown(f"""
+                    <div class='crystal-visualization'>
+                    <h4>3D Crystal Structure Model</h4>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # 创建晶体结构可视化
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        # 3D晶体结构图
+                        crystal_fig = create_crystal_structure_visualization(
+                            crystal_info['crystal_system'],
+                            crystal_info['lattice_parameters'],
+                            formula_input
+                        )
+                        st.plotly_chart(crystal_fig, use_container_width=True)
+                    
+                    with col2:
+                        # 晶胞示意图
+                        unit_cell_fig = create_unit_cell_diagram(
+                            crystal_info['crystal_system'],
+                            crystal_info['lattice_parameters']
+                        )
+                        st.plotly_chart(unit_cell_fig, use_container_width=True)
+                        
+                # 显示晶体系统说明
+                st.info(f"""
+                **Crystal System Explanation:** 
+                - **{crystal_info['crystal_system']}** crystal system
+                - Space group: **{crystal_info['space_group']}**
+                - Characterized by: {crystal_info['lattice_parameters']}
+                """)
                         
                 # 计算材料特征
                 features = calculate_material_features(formula_input)
