@@ -67,6 +67,13 @@ st.markdown(
         padding: 5px;
         background-color: transparent; /* 透明背景 */
     }
+    .crystal-structure-info {
+        background-color: #f0f8ff;
+        padding: 15px;
+        border-radius: 10px;
+        margin: 10px 0;
+        border-left: 4px solid #4CAF50;
+    }
      /* 针对小屏幕的优化 */
     @media (max-width: 768px) {
         .rounded-container {
@@ -101,7 +108,8 @@ st.markdown(
         <h2> Predict Ionic Conductivity(Cond) of Solid Electrolytes</h2>
         <blockquote>
             1. This web app predicts ionic conductivity of solid electrolytes based on material composition features.<br>
-            2. Code and data available at <a href='https://github.com/john-doe304/IC-SE-Predict' target='_blank'>GitHub Repository</a>.
+            2. Supports various solid electrolyte materials including oxides, sulfides, and halides.<br>
+            3. Code and data available at <a href='https://github.com/john-doe304/IC-SE-Predict' target='_blank'>GitHub Repository</a>.
         </blockquote>
     </div>
     """,
@@ -132,16 +140,16 @@ temperature = st.number_input("Select Temperature (K):", min_value=200, max_valu
 # 提交按钮
 submit_button = st.button("Submit and Predict", key="predict_button")
 
-# 指定的描述符列表
+# 指定的描述符列表 - 你选择的七个特征
 required_descriptors = [
-        'MagpieData mean CovalentRadius',
-        'Temp',
-        'MagpieData avg_dev SpaceGroupNumber',
-        '0-norm',
-        'MagpieData mean MeltingT',
-        'MagpieData avg_dev Column',
-        'MagpieData mean NValence'
-    ]
+    'MagpieData mean CovalentRadius',
+    'Temp',
+    'MagpieData avg_dev SpaceGroupNumber',
+    '0-norm',
+    'MagpieData mean MeltingT',
+    'MagpieData avg_dev Column',
+    'MagpieData mean NValence'
+]
 
 # 缓存模型加载器以避免重复加载
 @st.cache_resource(show_spinner=False, max_entries=1)  # 限制只缓存一个实例
@@ -195,7 +203,6 @@ def mol_to_image(mol, size=(300, 300)):
     
     return svg
 
-
 # 晶体结构数据库
 crystal_structures = {
     "Li7La3Zr2O12": {
@@ -226,13 +233,6 @@ crystal_structures = {
         "density": "2.41 g/cm³", 
         "reference": "Zhao et al., Nat. Commun. (2016)"
     },
-	"Li3OCl": {
-        "crystal_system": "Cubic",
-        "space_group": "Pm-3m",
-        "lattice_parameters": "a = 3.92 Å",
-        "density": "2.41 g/cm³", 
-        "reference": "Zhao et al., Nat. Commun. (2016)"
-    },
     "Li1+xAlxTi2-x(PO4)3": {
         "crystal_system": "Rhombohedral",
         "space_group": "R-3c",
@@ -253,7 +253,7 @@ def get_crystal_structure_info(formula):
         if formula in key or key in formula:
             return crystal_structures[key]
     
-     # 根据材料类型推断
+    # 根据材料类型推断
     if "Li" in formula and ("La" in formula or "Zr" in formula):
         return {
             "crystal_system": "Cubic/Tetragonal",
@@ -286,7 +286,7 @@ def get_crystal_structure_info(formula):
             "density": "Unknown",
             "reference": "Structure data not available"
         }
-			
+
 # 材料特征计算函数
 def calculate_material_features(formula):
     """计算材料的组成特征"""
@@ -336,8 +336,8 @@ def calculate_material_features(formula):
         import traceback
         print(traceback.format_exc())
         return {'Formula': formula}
-		
-#过滤特征（仅展示非零数值列）
+
+# 过滤特征 - 只显示指定的七个特征
 def filter_selected_features(features_dict, selected_descriptors, temperature):
     """只显示选定的七个特征"""
     filtered_features = {}
@@ -356,9 +356,7 @@ def filter_selected_features(features_dict, selected_descriptors, temperature):
     
     return filtered_features
 
-
-
-#自动匹配模型特征
+# 自动匹配模型特征
 def align_features_with_model(features_dict, predictor, temperature, formula, material_system):
     if predictor is None:
         return pd.DataFrame([features_dict])
@@ -395,15 +393,15 @@ if submit_button:
     else:
         with st.spinner("Processing material and making predictions..."):
             try:
-               # 显示材料信息
+                # 显示材料信息
                 material_info = material_systems[material_system]
                     
                 col1, col2, col3 = st.columns(3)
                 col1.metric("Material Type", material_system)
                 col2.metric("Crystal Structure", material_info["Type"])
                 col3.metric("Temperature", f"{temperature} K")
-
-				# 显示晶体结构信息
+                
+                # 显示晶体结构信息
                 st.subheader("📐 Crystal Structure Information")
                 crystal_info = get_crystal_structure_info(formula_input)
                 
@@ -418,35 +416,27 @@ if submit_button:
                     <p><strong>Reference:</strong> <em>{crystal_info['reference']}</em></p>
                     </div>
                     """, unsafe_allow_html=True)
-						
+                        
                 # 计算材料特征
                 features = calculate_material_features(formula_input)
                 st.write(f"✅ Total features extracted: {len(features)}")
-
-				# 只显示选定的七个特征
+                
+                # 只显示选定的七个特征
                 selected_features = filter_selected_features(features, required_descriptors, temperature)
-				
                 feature_df = pd.DataFrame([selected_features])
-				
-                st.subheader("Extracted Material Features (non-zero numeric columns)")
-                st.dataframe(filtered_df)
-			
+                
+                st.subheader("Selected Material Features")
+                st.dataframe(feature_df)
+            
                 if features:
-                    # 显示特征信息
-                   
-                    feature_df = pd.DataFrame([selected_features])
-                 
-                   
-                    
-					
                     # 创建输入数据
                     input_data = {
                         "Formula": [formula_input],
-                         "Material_Type": [material_system],
-                         "Temperature_K": [temperature],
+                        "Material_Type": [material_system],
+                        "Temperature_K": [temperature],
                     }
                     
-					# 添加数值特征
+                    # 添加数值特征
                     numeric_features = {}
                     for feature_name in required_descriptors:
                         if feature_name in features:
@@ -458,12 +448,6 @@ if submit_button:
                         
                     input_df = pd.DataFrame(input_data)
                 
-                    # 显示输入数据
-                    #st.write("Input Data for Prediction:")
-                    #st.dataframe(input_df)
-
-                
-                
                 # 加载模型并预测
                 try:
                     # 使用缓存的模型加载方式
@@ -471,12 +455,12 @@ if submit_button:
                     
                     # 只使用最关键的模型进行预测，减少内存占用
                     essential_models = ['CatBoost',
-  					                    'ExtraTreesMSE',
-										'LightGBM',
-										'KNeighborsDist',
-										'WeightedEnsemble_L2',
-										'XGBoost']
-										
+                                        'ExtraTreesMSE',
+                                        'LightGBM',
+                                        'KNeighborsDist',
+                                        'WeightedEnsemble_L2',
+                                        'XGBoost']
+                                        
                     predict_df = input_df.copy()
                     predictions_dict = {}
                     
@@ -504,19 +488,3 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
