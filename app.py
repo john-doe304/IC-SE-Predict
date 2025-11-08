@@ -765,20 +765,15 @@ if submit_button:
                             predictions_dict[model] = "Error"
 
                     # 显示预测结果
-                    st.subheader("🎯 Prediction Results")
+                    # 显示预测结果
+                    st.write("Prediction Results (Essential Models):")
+                    st.markdown(
+                        "**Note:** WeightedEnsemble_L2 is a meta-model combining predictions from other models.")
+                    results_df = pd.DataFrame(predictions_dict)
+                    st.dataframe(results_df.iloc[:1,:])
                    
                     
-                    # 创建预测结果表格
-                    results_data = []
-                    for model_name, prediction in predictions_dict.items():
-                        if prediction != "Error":
-                            results_data.append({
-                                "Model": model_name
-                            })
-                    
-                    if results_data:
-                        results_df = pd.DataFrame(results_data)
-                        st.dataframe(results_df)
+                   
                     
                     # 显示格式化的完整输出
                   
@@ -796,4 +791,5 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
