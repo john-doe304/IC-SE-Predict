@@ -25,9 +25,9 @@ st.markdown(
         border: 2px solid #808080;
         border-radius: 20px;
         margin: 50px auto;
-        max-width: 39%; /* 设置最大宽度 */
+        max-width: 40%;
         background-color: #f9f9f9f9;
-        padding: 20px; /* 增加内边距 */
+        padding: 20px;
         box-sizing: border-box;
     }
     .rounded-container h2 {
@@ -45,62 +45,10 @@ st.markdown(
         font-size: 1.1em;
         border-radius: 10px;
     }
-    a {
-        color: #0000EE;
-        text-decoration: underline;
-    }
-    .process-text, .molecular-weight {
-        font-family: Arial, sans-serif;
-        font-size: 16px;
-        color: #333;
-    }
-    .stDataFrame {
-        margin-top: 10px;
-        margin-bottom: 0px !important;
-    }
-    .molecule-container {
-        display: block;
-        margin: 20px auto;
-        max-width: 300px;
-        border: 1px solid #ddd;
-        border-radius: 5px;
-        padding: 5px;
-        background-color: transparent; /* 透明背景 */
-    }
-    .crystal-structure-info {
-        background-color: #f0f8ff;
-        padding: 15px;
-        border-radius: 10px;
-        margin: 10px 0;
-        border-left: 4px solid #4CAF50;
-    }
-     /* 针对小屏幕的优化 */
-    @media (max-width: 768px) {
-        .rounded-container {
-            padding: 10px; /* 减少内边距 */
-        }
-        .rounded-container blockquote {
-            font-size: 0.9em; /* 缩小字体 */
-        }
-        .rounded-container h2 {
-            font-size: 1.2em; /* 调整标题字体大小 */
-        }
-        .stApp {
-            padding: 1px !important; /* 减少内边距 */
-            max-width: 99%; /* 设置最大宽度 */
-        }
-        .process-text, .molecular-weight {
-            font-size: 0.9em; /* 缩小文本字体 */
-        }
-        .molecule-container {
-            max-width: 200px;
-        }
-    }
     </style>
     """,
     unsafe_allow_html=True,
 )
-
 # 页面标题和简介
 st.markdown(
     """
@@ -108,8 +56,7 @@ st.markdown(
         <h2> Predict Ionic Conductivity(Cond) of Solid Electrolytes</h2>
         <blockquote>
             1. This web app predicts ionic conductivity of solid electrolytes based on material composition features.<br>
-            2. Supports various solid electrolyte materials including oxides, sulfides, and halides.<br>
-            3. Code and data available at <a href='https://github.com/john-doe304/IC-SE-Predict' target='_blank'>GitHub Repository</a>.
+            2. Code and data available at <a href='https://github.com/john-doe304/IC-SE-Predict' target='_blank'>GitHub Repository</a>.
         </blockquote>
     </div>
     """,
