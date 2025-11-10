@@ -15,6 +15,9 @@ import gc  # 添加垃圾回收模块
 import re  # 添加正则表达式模块用于处理SVG
 from tqdm import tqdm 
 import numpy as np
+import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
 
 
 # 添加 CSS 样式
@@ -25,9 +28,9 @@ st.markdown(
         border: 2px solid #808080;
         border-radius: 20px;
         margin: 50px auto;
-        max-width: 40%;
+        max-width: 39%; /* 设置最大宽度 */
         background-color: #f9f9f9f9;
-        padding: 20px;
+        padding: 20px; /* 增加内边距 */
         box-sizing: border-box;
     }
     .rounded-container h2 {
@@ -45,34 +48,85 @@ st.markdown(
         font-size: 1.1em;
         border-radius: 10px;
     }
-    /* 减小指标卡片的字体大小 */
-    .stMetric {
-        font-size: 0.9em;
+    a {
+        color: #0000EE;
+        text-decoration: underline;
     }
-    /* 减小特征提取成功信息的字体大小 */
-    .stWrite {
-        font-size: 0.9em;
+    .process-text, .molecular-weight {
+        font-family: Arial, sans-serif;
+        font-size: 16px;
+        color: #333;
     }
-    /* 减小子标题的字体大小 */
-    h3 {
-        font-size: 1.2em;
+    .stDataFrame {
+        margin-top: 10px;
+        margin-bottom: 0px !important;
     }
-    /* 减小数据框的字体大小 */
-    .dataframe {
-        font-size: 0.8em;
+    .molecule-container {
+        display: block;
+        margin: 20px auto;
+        max-width: 300px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        padding: 5px;
+        background-color: transparent; /* 透明背景 */
+    }
+    .crystal-structure-info {
+        background-color: #f0f8ff;
+        padding: 15px;
+        border-radius: 10px;
+        margin: 10px 0;
+        border-left: 4px solid #4CAF50;
+    }
+    .crystal-visualization {
+        background-color: #fff8f0;
+        padding: 15px;
+        border-radius: 10px;
+        margin: 10px 0;
+        border-left: 4px solid #FF6B00;
+    }
+    .prediction-results {
+        background-color: #f8fff0;
+        padding: 15px;
+        border-radius: 10px;
+        margin: 10px 0;
+        border-left: 4px solid #FF6B00;
+    }
+     /* 针对小屏幕的优化 */
+    @media (max-width: 768px) {
+        .rounded-container {
+            padding: 10px; /* 减少内边距 */
+        }
+        .rounded-container blockquote {
+            font-size: 0.9em; /* 缩小字体 */
+        }
+        .rounded-container h2 {
+            font-size: 1.2em; /* 调整标题字体大小 */
+        }
+        .stApp {
+            padding: 1px !important; /* 减少内边距 */
+            max-width: 99%; /* 设置最大宽度 */
+        }
+        .process-text, .molecular-weight {
+            font-size: 0.9em; /* 缩小文本字体 */
+        }
+        .molecule-container {
+            max-width: 200px;
+        }
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
+
 # 页面标题和简介
 st.markdown(
     """
     <div class='rounded-container'>
-        <h2 style="font-size:24px;"> Predict Ionic Conductivity of Solid Electrolytes</h2>
+        <h2> Predict Ionic Conductivity(Cond) of Solid Electrolytes</h2>
         <blockquote>
             1. This web app predicts ionic conductivity of solid electrolytes based on material composition features.<br>
-             2.  Enter a valid chemical formula string below to get the predicted result.
+            2. Supports various solid electrolyte materials including oxides, sulfides, and halides.<br>
+            3. Code and data available at <a href='https://github.com/john-doe304/IC-SE-Predict' target='_blank'>GitHub Repository</a>.
         </blockquote>
     </div>
     """,
@@ -93,8 +147,6 @@ material_systems = {
 
 # 材料体系选择下拉菜单
 material_system = st.selectbox("Select Material Type:", list(material_systems.keys()))
-
-
 
 # FORMULA 输入区域
 formula_input = st.text_input("Enter Chemical Formula of the Material:",placeholder="e.g., Li7La3Zr2O12, Li10GeP2S12, Li3YCl6", )
@@ -121,54 +173,6 @@ required_descriptors = [
 def load_predictor():
     """缓存模型加载，避免重复加载导致内存溢出"""
     return TabularPredictor.load("./ag-20251024_075719")
-
-
-
-def mol_to_image(mol, size=(200, 200)):
-    """将分子转换为背景颜色为 #f9f9f9f9 的SVG图像"""
-    # 创建绘图对象
-    d2d = MolDraw2DSVG(size[0], size[1])
-    
-    # 获取绘图选项
-    draw_options = d2d.drawOptions()
-    
-    # 设置背景颜色为 #f9f9f9f9
-    draw_options.background = '#f9f9f9'
-    
-    # 移除所有边框和填充
-    draw_options.padding = 0.0
-    draw_options.additionalBondPadding = 0.0
-    
-    # 移除原子标签的边框
-    draw_options.annotationFontScale = 1.0
-    draw_options.addAtomIndices = False
-    draw_options.addStereoAnnotation = False
-    draw_options.bondLineWidth = 1.5
-    
-    # 禁用所有边框
-    draw_options.includeMetadata = False
-    
-    # 绘制分子
-    d2d.DrawMolecule(mol)
-    d2d.FinishDrawing()
-    
-    # 获取SVG内容
-    svg = d2d.GetDrawingText()
-    
-    # 移除SVG中所有可能存在的边框元素
-    # 1. 移除黑色边框矩形
-    svg = re.sub(r'<rect [^>]*stroke:black[^>]*>', '', svg, flags=re.DOTALL)
-    svg = re.sub(r'<rect [^>]*stroke:#000000[^>]*>', '', svg, flags=re.DOTALL)
-    
-    # 2. 移除所有空的rect元素
-    svg = re.sub(r'<rect[^>]*/>', '', svg, flags=re.DOTALL)
-    
-    # 3. 确保viewBox正确设置
-    if 'viewBox' in svg:
-        # 设置新的viewBox以移除边距
-        svg = re.sub(r'viewBox="[^"]+"', f'viewBox="0 0 {size[0]} {size[1]}"', svg)
-    
-    return svg
 
 def create_accurate_crystal_structure(formula, crystal_system, space_group, lattice_params):
     """
@@ -529,14 +533,11 @@ def filter_selected_features(features_dict, selected_descriptors, temperature):
     filtered_features = {}
     
     # 添加温度特征
-    
-    filtered_features['Temp'] = float(temperature)
+    filtered_features['Temperature_K'] = temperature
+    filtered_features['Temp'] = temperature
     
     # 添加选定的七个特征
     for feature_name in selected_descriptors:
-        if feature_name == 'Temp':
-            continue
-        
         if feature_name in features_dict:
             filtered_features[feature_name] = features_dict[feature_name]
         else:
@@ -546,7 +547,7 @@ def filter_selected_features(features_dict, selected_descriptors, temperature):
     return filtered_features
 
 # 自动匹配模型特征
-def align_features_with_model(features_dict, predictor, temperature, formula):
+def align_features_with_model(features_dict, predictor, temperature, formula, material_system):
     if predictor is None:
         return pd.DataFrame([features_dict])
 
@@ -568,7 +569,8 @@ def align_features_with_model(features_dict, predictor, temperature, formula):
             aligned[feat] = temperature
         elif f_low in ['formula']:
             aligned[feat] = formula
-      
+        elif f_low in ['material_type']:
+            aligned[feat] = material_system
         else:
             aligned[feat] = 0.0
 
@@ -644,13 +646,7 @@ if submit_button:
     else:
         with st.spinner("Processing material and making predictions..."):
             try:
-                
-               
-                # 计算材料特征
-                features = calculate_material_features(formula_input)
-                st.write(f"✅ Total features extracted: {len(features)}")
-
-                 # 显示材料信息
+                # 显示材料信息
                 material_info = material_systems[material_system]
                     
                 col1, col2, col3 = st.columns(3)
@@ -660,7 +656,17 @@ if submit_button:
                 
                 # 获取晶体结构信息
                 crystal_info = get_crystal_structure_info(formula_input)
-
+                
+                # 预处理数据（包含温度验证）
+                processed_data = preprocess_material_data(
+                    formula_input, material_system, temperature, crystal_info
+                )
+                
+                # 使用处理后的温度
+                actual_temperature = processed_data['temperature']
+                if temperature != actual_temperature:
+                    st.info(f"Temperature adjusted from {temperature}K to {actual_temperature}K for prediction")
+                
                 # 显示晶体结构信息
                 st.subheader("📐 Crystal Structure Information")
                 with st.container():
@@ -703,28 +709,30 @@ if submit_button:
                     - **Lattice Parameters:** {crystal_info['lattice_parameters']}
                     - **Structure Type:** {crystal_info.get('description', 'N/A')}
                     """)
+                        
+                # 计算材料特征
+                features = calculate_material_features(formula_input)
+                st.write(f"✅ Total features extracted: {len(features)}")
                 
-                # 只显示选定的七个特征
-                selected_features = filter_selected_features(features, required_descriptors, temperature)
+                # 只显示选定的七个特征（使用实际温度）
+                selected_features = filter_selected_features(features, required_descriptors, actual_temperature)
                 feature_df = pd.DataFrame([selected_features])
                 
-                st.subheader("Material Features")
+                st.subheader("Selected Material Features")
                 st.dataframe(feature_df)
             
                 if features:
-                    # 创建输入数据
+                    # 创建输入数据（使用实际温度）
                     input_data = {
                         "Formula": [formula_input],
-                       
-                        "Temp": [temperature],
+                        "Material_Type": [material_system],
+                        "Temperature_K": [actual_temperature],
                     }
                     
                     # 添加数值特征
                     numeric_features = {}
                     for feature_name in required_descriptors:
-                        if feature_name == 'Temp':
-                            numeric_features[feature_name] = [temperature]
-                        elif feature_name in features:
+                        if feature_name in features:
                             numeric_features[feature_name] = [features[feature_name]]
                         else:
                             numeric_features[feature_name] = [0.0]  # 默认值
@@ -752,17 +760,35 @@ if submit_button:
                     for model in essential_models:
                         try:
                             predictions = predictor.predict(predict_df, model=model)
-                            predictions_dict[model] = predictions
+                            predictions_dict[model] = predictions.iloc[0] if hasattr(predictions, 'iloc') else predictions[0]
                         except Exception as model_error:
                             st.warning(f"Model {model} prediction failed: {str(model_error)}")
                             predictions_dict[model] = "Error"
 
                     # 显示预测结果
-                    st.write("Prediction Results (Essential Models):")
+                    st.subheader("🎯 Prediction Results")
                     st.markdown(
                         "**Note:** WeightedEnsemble_L2 is a meta-model combining predictions from other models.")
-                    results_df = pd.DataFrame(predictions_dict)
-                    st.dataframe(results_df.iloc[:1,:])
+                    
+                    # 创建预测结果表格
+                    results_data = []
+                    for model_name, prediction in predictions_dict.items():
+                        if prediction != "Error":
+                            results_data.append({
+                                "Model": model_name,
+                                "Ionic Conductivity (S/cm)": f"{prediction:.6f}"
+                            })
+                    
+                    if results_data:
+                        results_df = pd.DataFrame(results_data)
+                        st.dataframe(results_df)
+                    
+                    # 显示格式化的完整输出
+                    st.subheader("📋 Complete Prediction Report")
+                    formatted_output = format_prediction_output(
+                        predictions_dict, crystal_info, actual_temperature, formula_input, material_system
+                    )
+                    st.markdown(f"```\n{formatted_output}\n```")
                     
                     # 主动释放内存
                     del predictor
@@ -773,15 +799,3 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
-
-
-
-
-
-
-
-
-
-
-
-
