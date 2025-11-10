@@ -351,22 +351,7 @@ if submit_button:
                 col2.metric("Crystal Structure", material_info["Type"])
                 col3.metric("Temperature", f"{temperature} K")
                 
-                # 显示晶体结构信息
-               # st.subheader("📐 Crystal Structure Information")
-                crystal_info = get_crystal_structure_info(formula_input)
-                
-                with st.container():
-                    st.markdown(f"""
-                    <div class='crystal-structure-info'>
-                    <h4>Crystal Structure Details for {formula_input}</h4>
-                    <p><strong>Crystal System:</strong> {crystal_info['crystal_system']}</p>
-                    <p><strong>Space Group:</strong> {crystal_info['space_group']}</p>
-                    <p><strong>Lattice Parameters:</strong> {crystal_info['lattice_parameters']}</p>
-                    <p><strong>Density:</strong> {crystal_info['density']}</p>
-                    <p><strong>Reference:</strong> <em>{crystal_info['reference']}</em></p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                        
+               
                 # 计算材料特征
                 features = calculate_material_features(formula_input)
                 st.write(f"✅ Total features extracted: {len(features)}")
@@ -440,5 +425,6 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
 
