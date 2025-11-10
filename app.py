@@ -72,7 +72,7 @@ st.markdown(
         <h2 style="font-size:24px;"> Predict Ionic Conductivity of Solid Electrolytes</h2>
         <blockquote>
             1. This web app predicts ionic conductivity of solid electrolytes based on material composition features.<br>
-            2. Code and data available at <a href='https://github.com/john-doe304/IC-SE-Predict' target='_blank'>GitHub Repository</a>.
+             2.  Enter a valid chemical formula string below to get the predicted result.
         </blockquote>
     </div>
     """,
@@ -340,6 +340,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
 
 
