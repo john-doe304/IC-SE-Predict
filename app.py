@@ -69,6 +69,13 @@ st.markdown(
         margin: 20px 0;
         text-align: center;
     }
+    .error-message {
+        background-color: #ffebee;
+        border: 1px solid #f44336;
+        border-radius: 5px;
+        padding: 10px;
+        margin: 10px 0;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -119,6 +126,23 @@ def load_predictor():
     """缓存模型加载，避免重复加载导致内存溢出"""
     return TabularPredictor.load("./ag-20251024_075719")
 
+def validate_chemical_formula(formula):
+    """验证化学公式格式"""
+    # 基本的化学公式验证
+    if not formula:
+        return False, "Formula cannot be empty"
+    
+    # 检查是否包含无效字符
+    invalid_chars = set('!@#$%^&*()_+=[]{}|;:,<>?`~')
+    if any(char in formula for char in invalid_chars):
+        return False, "Formula contains invalid characters"
+    
+    # 检查是否包含字母（至少一个元素）
+    if not any(c.isalpha() for c in formula):
+        return False, "Formula must contain chemical elements"
+    
+    return True, "Valid formula"
+
 def mol_to_image(mol, size=(200, 200)):
     """将分子转换为背景颜色为 #f9f9f9f9 的SVG图像"""
     # 创建绘图对象
@@ -167,11 +191,14 @@ def mol_to_image(mol, size=(200, 200)):
 
 def get_materials_project_structure(formula, api_key):
     """从Materials Project获取晶体结构信息"""
-    if not api_key:
+    if not api_key or not api_key.strip():
         return None, "No API key provided"
     
     try:
-        with MPRester(Gd6Y2d9mtjquU8imu8n4GdIiwCvUtZqN) as mpr:
+        # 清理API密钥
+        api_key = api_key.strip()
+        
+        with MPRester(api_key) as mpr:
             # 搜索材料
             materials = mpr.get_entries(formula)
             
@@ -411,110 +438,122 @@ if submit_button:
     if not formula_input:
         st.error("Please enter a valid chemical formula.")
     else:
-        with st.spinner("Processing material and making predictions..."):
-            try:
-                # 首先尝试从Materials Project获取晶体结构
-                if mp_api_key:
-                    with st.spinner("Fetching crystal structure from Materials Project..."):
-                        mp_data, mp_error = get_materials_project_structure(formula_input, mp_api_key)
-                        
-                        if mp_data and mp_error is None:
-                            st.success("✅ Crystal structure retrieved from Materials Project")
-                            
-                            # 显示材料信息
-                            st.subheader("Crystal Structure Information")
-                            col1, col2 = st.columns(2)
-                            
-                            with col1:
-                                st.write(f"**Material ID:** {mp_data['material_id']}")
-                                st.write(f"**Space Group:** {mp_data['spacegroup'].get('symbol', 'N/A')} ({mp_data['spacegroup'].get('number', 'N/A')})")
-                                st.write(f"**Density:** {mp_data['density']:.2f} g/cm³")
-                                
-                            with col2:
-                                st.write(f"**Volume:** {mp_data['volume']:.2f} Å³")
-                                st.write(f"**Formation Energy:** {mp_data['formation_energy_per_atom']:.3f} eV/atom")
-                                st.write(f"**Band Gap:** {mp_data['band_gap']:.3f} eV")
-                            
-                            # 绘制晶体结构
-                            st.subheader("3D Crystal Structure")
-                            fig = plot_crystal_structure_plotly(mp_data['structure'])
-                            if fig:
-                                st.plotly_chart(fig, use_container_width=True)
-                        else:
-                            st.warning(f"Could not retrieve crystal structure: {mp_error}")
-                else:
-                    st.info("💡 Enter a Materials Project API key to view crystal structure information")
-                
-                # 计算材料特征
-                features = calculate_material_features(formula_input)
-                st.write(f"✅ Total features extracted: {len(features)}")
-                
-                # 只显示选定的七个特征
-                selected_features = filter_selected_features(features, required_descriptors, temperature)
-                feature_df = pd.DataFrame([selected_features])
-                
-                st.subheader("Material Features")
-                st.dataframe(feature_df)
-            
-                if features:
-                    # 创建输入数据
-                    input_data = {
-                        "Formula": [formula_input],
-                        "Temp": [temperature],
-                    }
-                    
-                    # 添加数值特征
-                    numeric_features = {}
-                    for feature_name in required_descriptors:
-                        if feature_name == 'Temp':
-                            numeric_features[feature_name] = [temperature]
-                        elif feature_name in features:
-                            numeric_features[feature_name] = [features[feature_name]]
-                        else:
-                            numeric_features[feature_name] = [0.0]  # 默认值
-                        
-                    input_data.update(numeric_features)
-                        
-                    input_df = pd.DataFrame(input_data)
-                
-                # 加载模型并预测
+        # 验证化学公式
+        is_valid, validation_msg = validate_chemical_formula(formula_input)
+        
+        if not is_valid:
+            st.error(f"Invalid chemical formula: {validation_msg}")
+            st.info("💡 Please use standard chemical notation like: Li7La3Zr2O12, Li10GeP2S12, Li3YCl6")
+        else:
+            with st.spinner("Processing material and making predictions..."):
                 try:
-                    # 使用缓存的模型加载方式
-                    predictor = load_predictor()
+                    # 首先尝试从Materials Project获取晶体结构
+                    if mp_api_key and mp_api_key.strip():
+                        with st.spinner("Fetching crystal structure from Materials Project..."):
+                            mp_data, mp_error = get_materials_project_structure(formula_input, mp_api_key)
+                            
+                            if mp_data and mp_error is None:
+                                st.success("✅ Crystal structure retrieved from Materials Project")
+                                
+                                # 显示材料信息
+                                st.subheader("Crystal Structure Information")
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    st.write(f"**Material ID:** {mp_data['material_id']}")
+                                    st.write(f"**Space Group:** {mp_data['spacegroup'].get('symbol', 'N/A')} ({mp_data['spacegroup'].get('number', 'N/A')})")
+                                    st.write(f"**Density:** {mp_data['density']:.2f} g/cm³")
+                                    
+                                with col2:
+                                    st.write(f"**Volume:** {mp_data['volume']:.2f} Å³")
+                                    if mp_data['formation_energy_per_atom'] != 'N/A':
+                                        st.write(f"**Formation Energy:** {mp_data['formation_energy_per_atom']:.3f} eV/atom")
+                                    else:
+                                        st.write(f"**Formation Energy:** N/A")
+                                    if mp_data['band_gap'] != 'N/A':
+                                        st.write(f"**Band Gap:** {mp_data['band_gap']:.3f} eV")
+                                    else:
+                                        st.write(f"**Band Gap:** N/A")
+                                
+                                # 绘制晶体结构
+                                st.subheader("3D Crystal Structure")
+                                fig = plot_crystal_structure_plotly(mp_data['structure'])
+                                if fig:
+                                    st.plotly_chart(fig, use_container_width=True)
+                            else:
+                                st.warning(f"Could not retrieve crystal structure: {mp_error}")
+                    else:
+                        st.info("💡 Enter a Materials Project API key to view crystal structure information")
                     
-                    # 只使用最关键的模型进行预测，减少内存占用
-                    essential_models = ['CatBoost',
-                                        'ExtraTreesMSE',
-                                        'LightGBM',
-                                        'KNeighborsDist',
-                                        'WeightedEnsemble_L2',
-                                        'XGBoost']
-                                        
-                    predict_df = input_df.copy()
-                    predictions_dict = {}
+                    # 计算材料特征
+                    features = calculate_material_features(formula_input)
+                    st.write(f"✅ Total features extracted: {len(features)}")
                     
-                    for model in essential_models:
-                        try:
-                            predictions = predictor.predict(predict_df, model=model)
-                            predictions_dict[model] = predictions
-                        except Exception as model_error:
-                            st.warning(f"Model {model} prediction failed: {str(model_error)}")
-                            predictions_dict[model] = "Error"
+                    # 只显示选定的七个特征
+                    selected_features = filter_selected_features(features, required_descriptors, temperature)
+                    feature_df = pd.DataFrame([selected_features])
+                    
+                    st.subheader("Material Features")
+                    st.dataframe(feature_df)
+                
+                    if features:
+                        # 创建输入数据
+                        input_data = {
+                            "Formula": [formula_input],
+                            "Temp": [temperature],
+                        }
+                        
+                        # 添加数值特征
+                        numeric_features = {}
+                        for feature_name in required_descriptors:
+                            if feature_name == 'Temp':
+                                numeric_features[feature_name] = [temperature]
+                            elif feature_name in features:
+                                numeric_features[feature_name] = [features[feature_name]]
+                            else:
+                                numeric_features[feature_name] = [0.0]  # 默认值
+                            
+                        input_data.update(numeric_features)
+                            
+                        input_df = pd.DataFrame(input_data)
+                    
+                    # 加载模型并预测
+                    try:
+                        # 使用缓存的模型加载方式
+                        predictor = load_predictor()
+                        
+                        # 只使用最关键的模型进行预测，减少内存占用
+                        essential_models = ['CatBoost',
+                                            'ExtraTreesMSE',
+                                            'LightGBM',
+                                            'KNeighborsDist',
+                                            'WeightedEnsemble_L2',
+                                            'XGBoost']
+                                            
+                        predict_df = input_df.copy()
+                        predictions_dict = {}
+                        
+                        for model in essential_models:
+                            try:
+                                predictions = predictor.predict(predict_df, model=model)
+                                predictions_dict[model] = predictions
+                            except Exception as model_error:
+                                st.warning(f"Model {model} prediction failed: {str(model_error)}")
+                                predictions_dict[model] = "Error"
 
-                    # 显示预测结果
-                    st.write("Prediction Results (Essential Models):")
-                    st.markdown(
-                        "**Note:** WeightedEnsemble_L2 is a meta-model combining predictions from other models.")
-                    results_df = pd.DataFrame(predictions_dict)
-                    st.dataframe(results_df.iloc[:1,:])
-                    
-                    # 主动释放内存
-                    del predictor
-                    gc.collect()
+                        # 显示预测结果
+                        st.write("Prediction Results (Essential Models):")
+                        st.markdown(
+                            "**Note:** WeightedEnsemble_L2 is a meta-model combining predictions from other models.")
+                        results_df = pd.DataFrame(predictions_dict)
+                        st.dataframe(results_df.iloc[:1,:])
+                        
+                        # 主动释放内存
+                        del predictor
+                        gc.collect()
+
+                    except Exception as e:
+                        st.error(f"Model loading failed: {str(e)}")
 
                 except Exception as e:
-                    st.error(f"Model loading failed: {str(e)}")
-
-            except Exception as e:
-                st.error(f"An error occurred: {str(e)}")
-
+                    st.error(f"An error occurred: {str(e)}")
