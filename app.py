@@ -155,89 +155,7 @@ def mol_to_image(mol, size=(200, 200)):
     
     return svg
 
-# 晶体结构数据库
-crystal_structures = {
-    "Li7La3Zr2O12": {
-        "crystal_system": "Cubic",
-        "space_group": "Ia-3d",
-        "lattice_parameters": "a = 12.97 Å",
-        "density": "5.08 g/cm³",
-        "reference": "Murugan et al., Angew. Chem. Int. Ed. (2007)"
-    },
-    "Li10GeP2S12": {
-        "crystal_system": "Tetragonal", 
-        "space_group": "P4_2/nmc",
-        "lattice_parameters": "a = 8.72 Å, c = 12.54 Å",
-        "density": "2.04 g/cm³",
-        "reference": "Kamaya et al., Nat. Mater. (2011)"
-    },
-    "Li3YCl6": {
-        "crystal_system": "Trigonal",
-        "space_group": "R-3m", 
-        "lattice_parameters": "a = 6.62 Å, c = 18.24 Å",
-        "density": "2.67 g/cm³",
-        "reference": "Asano et al., Adv. Mater. (2018)"
-    },
-    "Li3OCl": {
-        "crystal_system": "Cubic",
-        "space_group": "Pm-3m",
-        "lattice_parameters": "a = 3.92 Å",
-        "density": "2.41 g/cm³", 
-        "reference": "Zhao et al., Nat. Commun. (2016)"
-    },
-    "Li1+xAlxTi2-x(PO4)3": {
-        "crystal_system": "Rhombohedral",
-        "space_group": "R-3c",
-        "lattice_parameters": "a = 8.51 Å, c = 20.84 Å",
-        "density": "2.94 g/cm³",
-        "reference": "Aono et al., J. Electrochem. Soc. (1990)"
-    }
-}
 
-def get_crystal_structure_info(formula):
-    """获取晶体结构信息"""
-    # 直接匹配
-    if formula in crystal_structures:
-        return crystal_structures[formula]
-    
-    # 模糊匹配（包含关系）
-    for key in crystal_structures:
-        if formula in key or key in formula:
-            return crystal_structures[key]
-    
-    # 根据材料类型推断
-    if "Li" in formula and ("La" in formula or "Zr" in formula):
-        return {
-            "crystal_system": "Cubic/Tetragonal",
-            "space_group": "Ia-3d/P4_2/nmc",
-            "lattice_parameters": "~12.9-13.0 Å",
-            "density": "~4.5-5.5 g/cm³",
-            "reference": "Typical Garnet Structure"
-        }
-    elif "Li" in formula and ("S" in formula or "P" in formula):
-        return {
-            "crystal_system": "Tetragonal/Orthorhombic", 
-            "space_group": "P4_2/nmc/Pnma",
-            "lattice_parameters": "a~8.7 Å, c~12.5 Å",
-            "density": "~2.0-2.5 g/cm³",
-            "reference": "Typical Sulfide Structure"
-        }
-    elif "Li" in formula and ("Cl" in formula or "Br" in formula or "I" in formula):
-        return {
-            "crystal_system": "Trigonal/Hexagonal",
-            "space_group": "R-3m/P6_3/mmc", 
-            "lattice_parameters": "a~6.6 Å, c~18.2 Å",
-            "density": "~2.5-3.0 g/cm³",
-            "reference": "Typical Halide Structure"
-        }
-    else:
-        return {
-            "crystal_system": "Unknown",
-            "space_group": "Unknown", 
-            "lattice_parameters": "Unknown",
-            "density": "Unknown",
-            "reference": "Structure data not available"
-        }
 
 # 材料特征计算函数
 def calculate_material_features(formula):
@@ -312,7 +230,7 @@ def filter_selected_features(features_dict, selected_descriptors, temperature):
     return filtered_features
 
 # 自动匹配模型特征
-def align_features_with_model(features_dict, predictor, temperature, formula, material_system):
+def align_features_with_model(features_dict, predictor, temperature, formula):
     if predictor is None:
         return pd.DataFrame([features_dict])
 
@@ -334,8 +252,7 @@ def align_features_with_model(features_dict, predictor, temperature, formula, ma
             aligned[feat] = temperature
         elif f_low in ['formula']:
             aligned[feat] = formula
-        elif f_low in ['material_type']:
-            aligned[feat] = material_system
+      
         else:
             aligned[feat] = 0.0
 
@@ -423,6 +340,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
 
 
