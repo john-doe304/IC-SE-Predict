@@ -104,7 +104,8 @@ temperature = st.number_input("Select Temperature (K):", min_value=200, max_valu
 # Materials Project API 密钥输入
 mp_api_key = st.text_input("Materials Project API Key (optional):", 
                           placeholder="Enter your API key to view crystal structure",
-                          type="password")
+                          type="password",
+                          value="")  # 确保初始值为空字符串
 
 # 提交按钮
 submit_button = st.button("Submit and Predict", key="predict_button")
@@ -198,29 +199,53 @@ def get_materials_project_structure(formula, api_key):
         # 清理API密钥
         api_key = api_key.strip()
         
+        # 验证API密钥格式
+        if len(api_key) != 32 or not all(c.isalnum() for c in api_key):
+            return None, "Invalid API key format. API key should be 32 alphanumeric characters."
+        
         with MPRester(api_key) as mpr:
-            # 搜索材料
-            materials = mpr.get_entries(formula)
-            
-            if not materials:
-                return None, f"No materials found for formula: {formula}"
-            
-            # 获取第一个材料的完整信息
-            material_id = materials[0].entry_id
-            structure = mpr.get_structure_by_material_id(material_id.split("-")[1])
-            
-            # 获取材料详情
-            material_data = mpr.get_doc(material_id.split("-")[1])
-            
-            return {
-                'structure': structure,
-                'material_id': material_id,
-                'spacegroup': material_data.get('spacegroup', {}),
-                'density': material_data.get('density', 'N/A'),
-                'volume': material_data.get('volume', 'N/A'),
-                'formation_energy_per_atom': material_data.get('formation_energy_per_atom', 'N/A'),
-                'band_gap': material_data.get('band_gap', 'N/A')
-            }, None
+            # 搜索材料 - 使用更精确的搜索
+            try:
+                # 首先尝试精确匹配
+                materials = mpr.get_entries(formula, inc_structure=True)
+                
+                if not materials:
+                    # 如果没有找到精确匹配，尝试模糊搜索
+                    materials = mpr.get_entries({"formula": formula}, inc_structure=True)
+                
+                if not materials:
+                    return None, f"No materials found for formula: {formula}"
+                
+                # 选择第一个材料
+                material = materials[0]
+                structure = material.structure
+                material_id = material.entry_id
+                
+                # 获取材料详情
+                try:
+                    material_data = mpr.get_doc(material_id.split("-")[1])
+                except:
+                    # 如果获取详细数据失败，使用基本数据
+                    material_data = {
+                        'spacegroup': {'symbol': 'N/A', 'number': 'N/A'},
+                        'density': getattr(material, 'density', 'N/A'),
+                        'volume': structure.volume if structure else 'N/A',
+                        'formation_energy_per_atom': getattr(material, 'energy_per_atom', 'N/A'),
+                        'band_gap': getattr(material, 'band_gap', 'N/A')
+                    }
+                
+                return {
+                    'structure': structure,
+                    'material_id': material_id,
+                    'spacegroup': material_data.get('spacegroup', {}),
+                    'density': material_data.get('density', 'N/A'),
+                    'volume': material_data.get('volume', 'N/A'),
+                    'formation_energy_per_atom': material_data.get('formation_energy_per_atom', 'N/A'),
+                    'band_gap': material_data.get('band_gap', 'N/A')
+                }, None
+                
+            except Exception as search_error:
+                return None, f"Search error: {str(search_error)}"
             
     except Exception as e:
         return None, f"Error accessing Materials Project: {str(e)}"
@@ -450,7 +475,10 @@ if submit_button:
                     # 首先尝试从Materials Project获取晶体结构
                     if mp_api_key and mp_api_key.strip():
                         with st.spinner("Fetching crystal structure from Materials Project..."):
-                            mp_data, mp_error = get_materials_project_structure(formula_input, mp_api_key)
+                            # 修正化学公式（如果用户输入了错误的格式）
+                            corrected_formula = formula_input.replace('.', '').replace('L1', 'Li').replace('l', 'I')
+                            
+                            mp_data, mp_error = get_materials_project_structure(corrected_formula, mp_api_key)
                             
                             if mp_data and mp_error is None:
                                 st.success("✅ Crystal structure retrieved from Materials Project")
@@ -462,10 +490,16 @@ if submit_button:
                                 with col1:
                                     st.write(f"**Material ID:** {mp_data['material_id']}")
                                     st.write(f"**Space Group:** {mp_data['spacegroup'].get('symbol', 'N/A')} ({mp_data['spacegroup'].get('number', 'N/A')})")
-                                    st.write(f"**Density:** {mp_data['density']:.2f} g/cm³")
+                                    if mp_data['density'] != 'N/A':
+                                        st.write(f"**Density:** {mp_data['density']:.2f} g/cm³")
+                                    else:
+                                        st.write(f"**Density:** N/A")
                                     
                                 with col2:
-                                    st.write(f"**Volume:** {mp_data['volume']:.2f} Å³")
+                                    if mp_data['volume'] != 'N/A':
+                                        st.write(f"**Volume:** {mp_data['volume']:.2f} Å³")
+                                    else:
+                                        st.write(f"**Volume:** N/A")
                                     if mp_data['formation_energy_per_atom'] != 'N/A':
                                         st.write(f"**Formation Energy:** {mp_data['formation_energy_per_atom']:.3f} eV/atom")
                                     else:
@@ -482,6 +516,7 @@ if submit_button:
                                     st.plotly_chart(fig, use_container_width=True)
                             else:
                                 st.warning(f"Could not retrieve crystal structure: {mp_error}")
+                                st.info("💡 Make sure your API key is correct and the chemical formula exists in Materials Project database")
                     else:
                         st.info("💡 Enter a Materials Project API key to view crystal structure information")
                     
