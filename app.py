@@ -290,7 +290,7 @@ def filter_selected_features(features_dict, selected_descriptors, temperature):
     filtered_features = {}
     
     # 添加温度特征
-    filtered_features['Temperature_K'] = float(temperature)
+    
     filtered_features['Temp'] = float(temperature)
     
     # 添加选定的七个特征
@@ -352,7 +352,7 @@ if submit_button:
                 col3.metric("Temperature", f"{temperature} K")
                 
                 # 显示晶体结构信息
-                st.subheader("📐 Crystal Structure Information")
+               # st.subheader("📐 Crystal Structure Information")
                 crystal_info = get_crystal_structure_info(formula_input)
                 
                 with st.container():
@@ -383,7 +383,7 @@ if submit_button:
                     input_data = {
                         "Formula": [formula_input],
                         "Material_Type": [material_system],
-                        "Temperature_K": [temperature],
+                        "Temp": [temperature],
                     }
                     
                     # 添加数值特征
@@ -440,4 +440,5 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
