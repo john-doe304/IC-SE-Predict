@@ -45,6 +45,22 @@ st.markdown(
         font-size: 1.1em;
         border-radius: 10px;
     }
+    /* 减小指标卡片的字体大小 */
+    .stMetric {
+        font-size: 0.9em;
+    }
+    /* 减小特征提取成功信息的字体大小 */
+    .stWrite {
+        font-size: 0.9em;
+    }
+    /* 减小子标题的字体大小 */
+    h3 {
+        font-size: 1.2em;
+    }
+    /* 减小数据框的字体大小 */
+    .dataframe {
+        font-size: 0.8em;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -425,6 +441,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
 
 
