@@ -18,7 +18,6 @@ import numpy as np
 from pymatgen.core import Composition
 from pymatgen.ext.matproj import MPRester
 import plotly.graph_objects as go
-from crystal_toolkit.components.structure import StructureMoleculeComponent
 import io
 
 # 添加 CSS 样式
@@ -518,3 +517,4 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
