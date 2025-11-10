@@ -282,7 +282,7 @@ if submit_button:
                     # 创建输入数据
                     input_data = {
                         "Formula": [formula_input],
-                        "Material_Type": [material_system],
+                       
                         "Temp": [temperature],
                     }
                     
@@ -340,6 +340,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
 
 
