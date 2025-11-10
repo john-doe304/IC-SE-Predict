@@ -81,8 +81,7 @@ st.markdown(
 
 
 
-# 材料体系选择下拉菜单
-material_system = st.selectbox("Select Material Type:", list(material_systems.keys()))
+
 
 # FORMULA 输入区域
 formula_input = st.text_input("Enter Chemical Formula of the Material:",placeholder="e.g., Li7La3Zr2O12, Li10GeP2S12, Li3YCl6", )
@@ -424,6 +423,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
 
 
