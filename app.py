@@ -104,7 +104,7 @@ def load_predictor():
     """缓存模型加载，避免重复加载导致内存溢出"""
     return TabularPredictor.load("./ag-20251024_075719")
 
-def mol_to_image(mol, size=(300, 300)):
+def mol_to_image(mol, size=(200, 200)):
     """将分子转换为背景颜色为 #f9f9f9f9 的SVG图像"""
     # 创建绘图对象
     d2d = MolDraw2DSVG(size[0], size[1])
@@ -425,6 +425,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
 
 
