@@ -79,17 +79,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# 材料体系选择
-material_systems = {
-    "LLZO": {"Type": "Garnet Oxide", "Typical Composition": "Li7La3Zr2O12", "Temperature Range": "25-500°C"},
-    "LGPS": {"Type": "Crystalline Sulfide", "Typical Composition": "Li10GeP2S12", "Temperature Range": "25-300°C"},
-    "NASICON": {"Type": "NASICON Oxide", "Typical Composition": "Li1+xAlxTi2-x(PO4)3", "Temperature Range": "25-400°C"},
-    "Perovskite": {"Type": "Perovskite Oxide", "Typical Composition": "Li3xLa2/3-xTiO3", "Temperature Range": "25-600°C"},
-    "Anti-Perovskite": {"Type": "Anti-Perovskite Halide", "Typical Composition": "Li3OCl", "Temperature Range": "25-300°C"},
-    "Sulfide Glass": {"Type": "Amorphous Sulfide", "Typical Composition": "Li2S-P2S5", "Temperature Range": "25-200°C"},
-    "Polymer": {"Type": "Polymer Electrolyte", "Typical Composition": "PEO-LiTFSI", "Temperature Range": "40-100°C"},
-    "Halide": {"Type": "Halide Electrolyte", "Typical Composition": "Li3YCl6", "Temperature Range": "25-300°C"}
-}
+
 
 # 材料体系选择下拉菜单
 material_system = st.selectbox("Select Material Type:", list(material_systems.keys()))
@@ -359,13 +349,6 @@ if submit_button:
     else:
         with st.spinner("Processing material and making predictions..."):
             try:
-                # 显示材料信息
-                material_info = material_systems[material_system]
-                    
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Material Type", material_system)
-                col2.metric("Crystal Structure", material_info["Type"])
-                col3.metric("Temperature", f"{temperature} K")
                 
                
                 # 计算材料特征
@@ -376,7 +359,7 @@ if submit_button:
                 selected_features = filter_selected_features(features, required_descriptors, temperature)
                 feature_df = pd.DataFrame([selected_features])
                 
-                st.subheader("Selected Material Features")
+                st.subheader("Material Features")
                 st.dataframe(feature_df)
             
                 if features:
@@ -441,6 +424,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
 
 
