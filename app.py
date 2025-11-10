@@ -174,9 +174,153 @@ def load_predictor():
     """缓存模型加载，避免重复加载导致内存溢出"""
     return TabularPredictor.load("./ag-20251024_075719")
 
-def create_accurate_crystal_structure(formula, crystal_system, space_group, lattice_params):
+def create_crystal_structure_visualization(crystal_system, lattice_params, formula):
     """
-    根据实际晶体结构数据创建准确的可视化
+    创建晶体结构可视化
+    """
+    fig = go.Figure()
+    
+    # 根据晶体系统设置不同的可视化
+    if "Cubic" in crystal_system:
+        # 立方晶系
+        x = [0, 1, 1, 0, 0, 1, 1, 0]
+        y = [0, 0, 1, 1, 0, 0, 1, 1]
+        z = [0, 0, 0, 0, 1, 1, 1, 1]
+        
+        # 绘制立方体边
+        edges = [
+            [0,1], [1,2], [2,3], [3,0],  # 底面
+            [4,5], [5,6], [6,7], [7,4],  # 顶面
+            [0,4], [1,5], [2,6], [3,7]   # 侧面
+        ]
+        
+        for edge in edges:
+            fig.add_trace(go.Scatter3d(
+                x=[x[edge[0]], x[edge[1]]],
+                y=[y[edge[0]], y[edge[1]]],
+                z=[z[edge[0]], z[edge[1]]],
+                mode='lines',
+                line=dict(color='blue', width=4),
+                showlegend=False
+            ))
+        
+        # 添加原子位置
+        fig.add_trace(go.Scatter3d(
+            x=x, y=y, z=z,
+            mode='markers',
+            marker=dict(size=8, color='red'),
+            name='Atoms'
+        ))
+        
+    elif "Tetragonal" in crystal_system:
+        # 四方晶系
+        a, c = 1.0, 1.5  # 不同的a和c参数
+        x = [0, a, a, 0, 0, a, a, 0]
+        y = [0, 0, a, a, 0, 0, a, a]
+        z = [0, 0, 0, 0, c, c, c, c]
+        
+        edges = [
+            [0,1], [1,2], [2,3], [3,0],
+            [4,5], [5,6], [6,7], [7,4],
+            [0,4], [1,5], [2,6], [3,7]
+        ]
+        
+        for edge in edges:
+            fig.add_trace(go.Scatter3d(
+                x=[x[edge[0]], x[edge[1]]],
+                y=[y[edge[0]], y[edge[1]]],
+                z=[z[edge[0]], z[edge[1]]],
+                mode='lines',
+                line=dict(color='green', width=4),
+                showlegend=False
+            ))
+        
+        fig.add_trace(go.Scatter3d(
+            x=x, y=y, z=z,
+            mode='markers',
+            marker=dict(size=8, color='orange'),
+            name='Atoms'
+        ))
+        
+    elif "Trigonal" in crystal_system or "Rhombohedral" in crystal_system:
+        # 三角/菱方晶系
+        import math
+        angles = [0, 2*math.pi/3, 4*math.pi/3]
+        x = [math.cos(angle) for angle in angles] + [math.cos(angle) for angle in angles]
+        y = [math.sin(angle) for angle in angles] + [math.sin(angle) for angle in angles]
+        z = [0,0,0,1,1,1]
+        
+        # 绘制三角棱柱
+        edges = [
+            [0,1], [1,2], [2,0],  # 底面三角形
+            [3,4], [4,5], [5,3],  # 顶面三角形
+            [0,3], [1,4], [2,5]   # 侧面
+        ]
+        
+        for edge in edges:
+            fig.add_trace(go.Scatter3d(
+                x=[x[edge[0]], x[edge[1]]],
+                y=[y[edge[0]], y[edge[1]]],
+                z=[z[edge[0]], z[edge[1]]],
+                mode='lines',
+                line=dict(color='purple', width=4),
+                showlegend=False
+            ))
+        
+        fig.add_trace(go.Scatter3d(
+            x=x, y=y, z=z,
+            mode='markers',
+            marker=dict(size=8, color='magenta'),
+            name='Atoms'
+        ))
+        
+    else:
+        # 默认立方晶系
+        x = [0, 1, 1, 0, 0, 1, 1, 0]
+        y = [0, 0, 1, 1, 0, 0, 1, 1]
+        z = [0, 0, 0, 0, 1, 1, 1, 1]
+        
+        edges = [
+            [0,1], [1,2], [2,3], [3,0],
+            [4,5], [5,6], [6,7], [7,4],
+            [0,4], [1,5], [2,6], [3,7]
+        ]
+        
+        for edge in edges:
+            fig.add_trace(go.Scatter3d(
+                x=[x[edge[0]], x[edge[1]]],
+                y=[y[edge[0]], y[edge[1]]],
+                z=[z[edge[0]], z[edge[1]]],
+                mode='lines',
+                line=dict(color='gray', width=4),
+                showlegend=False
+            ))
+        
+        fig.add_trace(go.Scatter3d(
+            x=x, y=y, z=z,
+            mode='markers',
+            marker=dict(size=8, color='blue'),
+            name='Atoms'
+        ))
+    
+    fig.update_layout(
+        title=f"Crystal Structure: {crystal_system} - {formula}",
+        scene=dict(
+            xaxis_title='X',
+            yaxis_title='Y',
+            zaxis_title='Z',
+            aspectmode='data'
+        ),
+        width=500,
+        height=400,
+        margin=dict(l=0, r=0, b=0, t=40)
+    )
+    
+    return fig
+
+def create_unit_cell_diagram(crystal_system, lattice_params):
+    """
+    创建晶胞示意图
     """
     fig = go.Figure()
     
@@ -185,197 +329,66 @@ def create_accurate_crystal_structure(formula, crystal_system, space_group, latt
     c_match = re.search(r'c\s*=\s*([\d.]+)', lattice_params)
     
     a_val = float(a_match.group(1)) if a_match else 1.0
-    c_val = float(c_match.group(1)) if c_match else 1.0
+    c_val = float(c_match.group(1)) if c_match else (1.5 if "Tetragonal" in crystal_system or "Trigonal" in crystal_system else 1.0)
     
-    # 根据具体材料设置原子位置
-    if "Li10GeP2S12" in formula or "LGPS" in formula:
-        # Li10GeP2S12 的实际晶体结构 (四方晶系 P4_2/nmc)
-        # 简化模型：基于实际晶体结构的特征
-        positions = [
-            # Li 原子位置 (简化)
-            (0.125, 0.125, 0.125), (0.375, 0.375, 0.125),
-            (0.625, 0.625, 0.125), (0.875, 0.875, 0.125),
-            # Ge 原子位置
-            (0.5, 0.5, 0.5),
-            # P 原子位置  
-            (0.25, 0.25, 0.25), (0.75, 0.75, 0.25),
-            # S 原子位置
-            (0.1, 0.1, 0.4), (0.4, 0.1, 0.6), (0.6, 0.4, 0.4), (0.9, 0.6, 0.6)
-        ]
-        atom_types = ['Li']*4 + ['Ge'] + ['P']*2 + ['S']*4
-        colors = ['lightblue']*4 + ['gray'] + ['orange']*2 + ['yellow']*4
-        sizes = [6]*4 + [10] + [8]*2 + [9]*4
-        
-    elif "Li7La3Zr2O12" in formula or "LLZO" in formula:
-        # LLZO 石榴石结构 (立方晶系 Ia-3d)
-        positions = [
-            # Li 位置
-            (0.125, 0.125, 0.125), (0.375, 0.375, 0.125),
-            (0.625, 0.625, 0.125), (0.875, 0.875, 0.125),
-            # La 位置
-            (0.25, 0.0, 0.25), (0.75, 0.0, 0.75),
-            # Zr 位置
-            (0.5, 0.5, 0.5),
-            # O 位置
-            (0.1, 0.2, 0.3), (0.3, 0.1, 0.2), (0.2, 0.3, 0.1)
-        ]
-        atom_types = ['Li']*4 + ['La']*2 + ['Zr'] + ['O']*3
-        colors = ['lightblue']*4 + ['green']*2 + ['silver'] + ['red']*3
-        sizes = [6]*4 + [12]*2 + [10] + [8]*3
-        
-    elif "Li3YCl6" in formula:
-        # Li3YCl6 卤化物结构 (三角晶系 R-3m)
-        positions = [
-            # Li 位置
-            (0.333, 0.667, 0.25), (0.667, 0.333, 0.75),
-            # Y 位置
-            (0.0, 0.0, 0.5),
-            # Cl 位置
-            (0.2, 0.4, 0.1), (0.4, 0.2, 0.9), (0.6, 0.8, 0.1),
-            (0.8, 0.6, 0.9), (0.1, 0.3, 0.3), (0.3, 0.1, 0.7)
-        ]
-        atom_types = ['Li']*2 + ['Y'] + ['Cl']*6
-        colors = ['lightblue']*2 + ['purple'] + ['green']*6
-        sizes = [6]*2 + [12] + [9]*6
-        
-    else:
-        # 默认通用结构
-        positions = [
-            (0.0, 0.0, 0.0), (0.5, 0.5, 0.0),
-            (0.0, 0.5, 0.5), (0.5, 0.0, 0.5)
-        ]
-        atom_types = ['A', 'B', 'C', 'D']
-        colors = ['blue', 'red', 'green', 'orange']
-        sizes = [8, 8, 8, 8]
-    
-    # 绘制原子
-    x_vals, y_vals, z_vals = [], [], []
-    colors_vals, size_vals, text_vals = [], [], []
-    
-    for i, (x, y, z) in enumerate(positions):
-        x_vals.append(x * a_val)
-        y_vals.append(y * a_val)
-        z_vals.append(z * (c_val if "Tetragonal" in crystal_system or "Trigonal" in crystal_system else a_val))
-        colors_vals.append(colors[i])
-        size_vals.append(sizes[i])
-        text_vals.append(atom_types[i])
-    
-    # 添加原子
-    fig.add_trace(go.Scatter3d(
-        x=x_vals, y=y_vals, z=z_vals,
-        mode='markers',
-        marker=dict(
-            size=size_vals,
-            color=colors_vals,
-            opacity=0.8,
-            line=dict(width=2, color='darkgray')
-        ),
-        text=text_vals,
-        hoverinfo='text',
-        name='Atoms'
-    ))
-    
-    # 添加晶胞边界
+    # 根据晶体系统绘制不同的晶胞
     if "Cubic" in crystal_system:
-        # 立方晶胞边界
-        edges = [
-            [(0,0,0), (a_val,0,0)], [(0,0,0), (0,a_val,0)], [(0,0,0), (0,0,a_val)],
-            [(a_val,a_val,a_val), (0,a_val,a_val)], [(a_val,a_val,a_val), (a_val,0,a_val)], [(a_val,a_val,a_val), (a_val,a_val,0)],
-            [(a_val,0,0), (a_val,a_val,0)], [(a_val,0,0), (a_val,0,a_val)],
-            [(0,a_val,0), (a_val,a_val,0)], [(0,a_val,0), (0,a_val,a_val)],
-            [(0,0,a_val), (a_val,0,a_val)], [(0,0,a_val), (0,a_val,a_val)]
-        ]
+        # 立方晶胞
+        fig.add_trace(go.Mesh3d(
+            x=[0, a_val, a_val, 0, 0, a_val, a_val, 0],
+            y=[0, 0, a_val, a_val, 0, 0, a_val, a_val],
+            z=[0, 0, 0, 0, a_val, a_val, a_val, a_val],
+            i=[0, 0, 0, 2],
+            j=[1, 2, 3, 3],
+            k=[2, 3, 7, 7],
+            opacity=0.3,
+            color='lightblue'
+        ))
+        
     elif "Tetragonal" in crystal_system:
-        # 四方晶胞边界
-        edges = [
-            [(0,0,0), (a_val,0,0)], [(0,0,0), (0,a_val,0)], [(0,0,0), (0,0,c_val)],
-            [(a_val,a_val,c_val), (0,a_val,c_val)], [(a_val,a_val,c_val), (a_val,0,c_val)], [(a_val,a_val,c_val), (a_val,a_val,0)],
-            [(a_val,0,0), (a_val,a_val,0)], [(a_val,0,0), (a_val,0,c_val)],
-            [(0,a_val,0), (a_val,a_val,0)], [(0,a_val,0), (0,a_val,c_val)],
-            [(0,0,c_val), (a_val,0,c_val)], [(0,0,c_val), (0,a_val,c_val)]
-        ]
-    else:
-        # 默认立方边界
-        edges = [
-            [(0,0,0), (a_val,0,0)], [(0,0,0), (0,a_val,0)], [(0,0,0), (0,0,a_val)],
-            [(a_val,a_val,a_val), (0,a_val,a_val)], [(a_val,a_val,a_val), (a_val,0,a_val)], [(a_val,a_val,a_val), (a_val,a_val,0)],
-        ]
-    
-    # 绘制晶胞边界
-    for edge in edges:
-        start, end = edge
-        fig.add_trace(go.Scatter3d(
-            x=[start[0], end[0]],
-            y=[start[1], end[1]], 
-            z=[start[2], end[2]],
-            mode='lines',
-            line=dict(color='black', width=3),
-            showlegend=False
+        # 四方晶胞
+        fig.add_trace(go.Mesh3d(
+            x=[0, a_val, a_val, 0, 0, a_val, a_val, 0],
+            y=[0, 0, a_val, a_val, 0, 0, a_val, a_val],
+            z=[0, 0, 0, 0, c_val, c_val, c_val, c_val],
+            i=[0, 0, 0, 2],
+            j=[1, 2, 3, 3],
+            k=[2, 3, 7, 7],
+            opacity=0.3,
+            color='lightgreen'
+        ))
+        
+    elif "Trigonal" in crystal_system:
+        # 三角晶胞
+        import math
+        # 简化的三角晶胞表示
+        fig.add_trace(go.Mesh3d(
+            x=[0, a_val, a_val/2, 0, a_val, a_val/2],
+            y=[0, 0, a_val*math.sqrt(3)/2, 0, 0, a_val*math.sqrt(3)/2],
+            z=[0, 0, 0, c_val, c_val, c_val],
+            i=[0, 0, 1],
+            j=[1, 2, 2],
+            k=[2, 4, 5],
+            opacity=0.3,
+            color='lavender'
         ))
     
+    # 添加晶胞边界
     fig.update_layout(
-        title=f"Crystal Structure: {crystal_system}<br>{formula}",
+        title=f"Unit Cell - {crystal_system}",
         scene=dict(
-            xaxis_title='X (Å)',
-            yaxis_title='Y (Å)',
-            zaxis_title='Z (Å)',
-            aspectmode='data',
-            camera=dict(eye=dict(x=1.5, y=1.5, z=1.5))
+            xaxis_title='a (Å)',
+            yaxis_title='b (Å)',
+            zaxis_title='c (Å)',
+            aspectmode='data'
         ),
-        width=600,
-        height=500,
-        margin=dict(l=0, r=0, b=0, t=40)
+        width=400,
+        height=300
     )
     
     return fig
 
-def create_structure_comparison(formula, crystal_info):
-    """
-    创建结构对比图，显示实际晶体结构特征
-    """
-    fig = make_subplots(
-        rows=1, cols=2,
-        subplot_titles=['Crystal Structure Model', 'Structural Features'],
-        specs=[[{'type': 'scatter3d'}, {'type': 'bar'}]]
-    )
-    
-    # 左侧：晶体结构模型
-    crystal_fig = create_accurate_crystal_structure(
-        formula, 
-        crystal_info['crystal_system'],
-        crystal_info['space_group'], 
-        crystal_info['lattice_parameters']
-    )
-    
-    for trace in crystal_fig.data:
-        fig.add_trace(trace, row=1, col=1)
-    
-    # 右侧：结构特征条形图
-    features = {
-        'Symmetry': 8,
-        'Coordination': 6, 
-        'Channel Size': 7,
-        'Framework': 9
-    }
-    
-    fig.add_trace(go.Bar(
-        x=list(features.keys()),
-        y=list(features.values()),
-        marker_color=['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4']
-    ), row=1, col=2)
-    
-    fig.update_layout(
-        title_text=f"Structural Analysis: {formula}",
-        showlegend=False,
-        height=400
-    )
-    
-    fig.update_xaxes(title_text="Structural Features", row=1, col=2)
-    fig.update_yaxes(title_text="Score", row=1, col=2)
-    
-    return fig
-
-# 晶体结构数据库（增强版）
+# 晶体结构数据库
 crystal_structures = {
     "Li7La3Zr2O12": {
         "crystal_system": "Cubic",
@@ -383,8 +396,7 @@ crystal_structures = {
         "lattice_parameters": "a = 12.97 Å",
         "density": "5.08 g/cm³",
         "reference": "Murugan et al., Angew. Chem. Int. Ed. (2007)",
-        "color": "#FF6B6B",
-        "description": "Garnet-type structure with 3D Li+ migration pathways"
+        "color": "#FF6B6B"
     },
     "Li10GeP2S12": {
         "crystal_system": "Tetragonal", 
@@ -392,8 +404,7 @@ crystal_structures = {
         "lattice_parameters": "a = 8.72 Å, c = 12.54 Å",
         "density": "2.04 g/cm³",
         "reference": "Kamaya et al., Nat. Mater. (2011)",
-        "color": "#4ECDC4",
-        "description": "Layered sulfide structure with 1D Li+ channels"
+        "color": "#4ECDC4"
     },
     "Li3YCl6": {
         "crystal_system": "Trigonal",
@@ -401,8 +412,7 @@ crystal_structures = {
         "lattice_parameters": "a = 6.62 Å, c = 18.24 Å",
         "density": "2.67 g/cm³",
         "reference": "Asano et al., Adv. Mater. (2018)",
-        "color": "#45B7D1",
-        "description": "Layered halide structure with 2D Li+ migration"
+        "color": "#45B7D1"
     },
     "Li3OCl": {
         "crystal_system": "Cubic",
@@ -410,8 +420,7 @@ crystal_structures = {
         "lattice_parameters": "a = 3.92 Å",
         "density": "2.41 g/cm³", 
         "reference": "Zhao et al., Nat. Commun. (2016)",
-        "color": "#96CEB4",
-        "description": "Anti-perovskite structure with 3D ionic conduction"
+        "color": "#96CEB4"
     },
     "Li1+xAlxTi2-x(PO4)3": {
         "crystal_system": "Rhombohedral",
@@ -419,8 +428,7 @@ crystal_structures = {
         "lattice_parameters": "a = 8.51 Å, c = 20.84 Å",
         "density": "2.94 g/cm³",
         "reference": "Aono et al., J. Electrochem. Soc. (1990)",
-        "color": "#FECA57",
-        "description": "NASICON-type framework with 3D conduction pathways"
+        "color": "#FECA57"
     }
 }
 
@@ -443,8 +451,7 @@ def get_crystal_structure_info(formula):
             "lattice_parameters": "~12.9-13.0 Å",
             "density": "~4.5-5.5 g/cm³",
             "reference": "Typical Garnet Structure",
-            "color": "#FF9FF3",
-            "description": "Garnet-type oxide structure"
+            "color": "#FF9FF3"
         }
     elif "Li" in formula and ("S" in formula or "P" in formula):
         return {
@@ -453,8 +460,7 @@ def get_crystal_structure_info(formula):
             "lattice_parameters": "a~8.7 Å, c~12.5 Å",
             "density": "~2.0-2.5 g/cm³",
             "reference": "Typical Sulfide Structure",
-            "color": "#54A0FF",
-            "description": "Sulfide-based ionic conductor"
+            "color": "#54A0FF"
         }
     elif "Li" in formula and ("Cl" in formula or "Br" in formula or "I" in formula):
         return {
@@ -463,8 +469,7 @@ def get_crystal_structure_info(formula):
             "lattice_parameters": "a~6.6 Å, c~18.2 Å",
             "density": "~2.5-3.0 g/cm³",
             "reference": "Typical Halide Structure",
-            "color": "#00D2D3",
-            "description": "Halide-based solid electrolyte"
+            "color": "#00D2D3"
         }
     else:
         return {
@@ -473,8 +478,7 @@ def get_crystal_structure_info(formula):
             "lattice_parameters": "Unknown",
             "density": "Unknown",
             "reference": "Structure data not available",
-            "color": "#C8D6E5",
-            "description": "Structure information not available"
+            "color": "#C8D6E5"
         }
 
 # 材料特征计算函数
@@ -677,38 +681,46 @@ if submit_button:
                     <p><strong>Space Group:</strong> {crystal_info['space_group']}</p>
                     <p><strong>Lattice Parameters:</strong> {crystal_info['lattice_parameters']}</p>
                     <p><strong>Density:</strong> {crystal_info['density']}</p>
-                    <p><strong>Description:</strong> {crystal_info.get('description', 'N/A')}</p>
                     <p><strong>Reference:</strong> <em>{crystal_info['reference']}</em></p>
                     </div>
                     """, unsafe_allow_html=True)
                 
-                # 显示准确的晶体结构可视化
-                st.subheader("🔬 Accurate Crystal Structure Visualization")
+                # 显示晶体结构可视化
+                st.subheader("🔬 Crystal Structure Visualization")
                 with st.container():
                     st.markdown(f"""
                     <div class='crystal-visualization'>
-                    <h4>3D Crystal Structure Model Based on Experimental Data</h4>
-                    <p><em>This visualization shows the actual atomic arrangement based on crystallographic data from literature.</em></p>
+                    <h4>3D Crystal Structure Model</h4>
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # 创建准确的晶体结构可视化
-                    accurate_fig = create_accurate_crystal_structure(
-                        formula_input,
-                        crystal_info['crystal_system'],
-                        crystal_info['space_group'],
-                        crystal_info['lattice_parameters']
-                    )
-                    st.plotly_chart(accurate_fig, use_container_width=True)
+                    # 创建晶体结构可视化
+                    col1, col2 = st.columns(2)
                     
-                    # 显示结构对比
-                    st.info(f"""
-                    **Crystal Structure Features:**
-                    - **Crystal System:** {crystal_info['crystal_system']}
-                    - **Space Group:** {crystal_info['space_group']}
-                    - **Lattice Parameters:** {crystal_info['lattice_parameters']}
-                    - **Structure Type:** {crystal_info.get('description', 'N/A')}
-                    """)
+                    with col1:
+                        # 3D晶体结构图
+                        crystal_fig = create_crystal_structure_visualization(
+                            crystal_info['crystal_system'],
+                            crystal_info['lattice_parameters'],
+                            formula_input
+                        )
+                        st.plotly_chart(crystal_fig, use_container_width=True)
+                    
+                    with col2:
+                        # 晶胞示意图
+                        unit_cell_fig = create_unit_cell_diagram(
+                            crystal_info['crystal_system'],
+                            crystal_info['lattice_parameters']
+                        )
+                        st.plotly_chart(unit_cell_fig, use_container_width=True)
+                        
+                # 显示晶体系统说明
+                st.info(f"""
+                **Crystal System Explanation:** 
+                - **{crystal_info['crystal_system']}** crystal system
+                - Space group: **{crystal_info['space_group']}**
+                - Characterized by: {crystal_info['lattice_parameters']}
+                """)
                         
                 # 计算材料特征
                 features = calculate_material_features(formula_input)
