@@ -19,6 +19,9 @@ from pymatgen.core import Composition, Structure
 from pymatgen.ext.matproj import MPRester
 import plotly.graph_objects as go
 import io
+import requests
+from PIL import Image
+import base64
 
 # 添加 CSS 样式
 st.markdown(
@@ -76,6 +79,13 @@ st.markdown(
         padding: 10px;
         margin: 10px 0;
     }
+    .structure-container {
+        border: 1px solid #ddd;
+        border-radius: 10px;
+        padding: 15px;
+        background-color: white;
+        margin: 10px 0;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -105,7 +115,7 @@ temperature = st.number_input("Select Temperature (K):", min_value=200, max_valu
 mp_api_key = st.text_input("Materials Project API Key (optional):", 
                           placeholder="Enter your API key to view crystal structure",
                           type="password",
-                          value="")
+                          value="Gd6Y2d9mtjquU8imu8n4GdIiwCvUtZqN")
 
 # 提交按钮
 submit_button = st.button("Submit and Predict", key="predict_button")
@@ -141,32 +151,8 @@ def validate_chemical_formula(formula):
     
     return True, "Valid formula"
 
-# 常见固态电解质的已知结构信息
-KNOWN_STRUCTURES = {
-    'Li7La3Zr2O12': {
-        'common_name': 'LLZO (Garnet)',
-        'space_groups': [230, 225],  # 立方相的空间群
-        'typical_phases': ['cubic', 'tetragonal']
-    },
-    'Li10GeP2S12': {
-        'common_name': 'LGPS',
-        'space_groups': [15],
-        'typical_phases': ['orthorhombic']
-    },
-    'Li3YCl6': {
-        'common_name': 'LYC',
-        'space_groups': [166],
-        'typical_phases': ['hexagonal']
-    },
-    'Li6PS5Cl': {
-        'common_name': 'Argyrodite',
-        'space_groups': [216],
-        'typical_phases': ['cubic']
-    }
-}
-
-def get_best_materials_project_structure(formula, api_key):
-    """从Materials Project获取最相关的晶体结构信息"""
+def get_materials_project_structure_with_image(formula, api_key):
+    """从Materials Project获取晶体结构信息和图片"""
     if not api_key or not api_key.strip():
         return None, "No API key provided"
     
@@ -177,65 +163,185 @@ def get_best_materials_project_structure(formula, api_key):
             return None, "Invalid API key format. API key should be 32 alphanumeric characters."
         
         with MPRester(api_key) as mpr:
-            # 获取所有匹配的材料
-            materials = mpr.get_entries(formula, inc_structure=True, property_data=["spacegroup", "density", "volume", "formation_energy_per_atom", "band_gap"])
+            # 搜索材料
+            results = mpr.query({"formula": formula}, 
+                              ["material_id", "spacegroup", "density", "volume", 
+                               "formation_energy_per_atom", "band_gap", "cif", "pretty_formula"])
             
-            if not materials:
+            if not results:
                 return None, f"No materials found for formula: {formula}"
             
-            # 如果有已知结构信息，优先选择
-            if formula in KNOWN_STRUCTURES:
-                known_info = KNOWN_STRUCTURES[formula]
-                st.info(f"🔍 Searching for {known_info['common_name']} structure...")
-                
-                # 优先选择已知空间群的结构
-                preferred_materials = []
-                other_materials = []
-                
-                for material in materials:
-                    spacegroup = getattr(material, 'data', {}).get('spacegroup', {})
-                    sg_number = spacegroup.get('number', 0)
-                    
-                    if sg_number in known_info['space_groups']:
-                        preferred_materials.append(material)
-                    else:
-                        other_materials.append(material)
-                
-                # 优先选择已知空间群的结构
-                if preferred_materials:
-                    materials = preferred_materials + other_materials
+            # 选择第一个结果
+            material_data = results[0]
+            material_id = material_data.get("material_id")
+            pretty_formula = material_data.get("pretty_formula", formula)
             
-            # 选择最稳定的结构（最低形成能）
-            materials.sort(key=lambda x: x.energy_per_atom)
-            best_material = materials[0]
+            # 获取结构
+            structure = mpr.get_structure_by_material_id(material_id)
             
-            structure = best_material.structure
-            material_id = best_material.entry_id
+            # 安全地获取空间群信息
+            spacegroup_data = material_data.get("spacegroup", {})
+            if isinstance(spacegroup_data, dict):
+                spacegroup_symbol = spacegroup_data.get("symbol", "N/A")
+                spacegroup_number = spacegroup_data.get("number", "N/A")
+            else:
+                spacegroup_symbol = "N/A"
+                spacegroup_number = "N/A"
             
-            # 获取详细数据
-            material_data = best_material.data or {}
-            spacegroup = material_data.get('spacegroup', {})
-            
-            # 分析结构特征
-            structure_info = analyze_structure_features(structure)
-            
-            result = {
+            return {
                 'structure': structure,
                 'material_id': material_id,
-                'spacegroup': spacegroup,
-                'density': material_data.get('density', structure_info['density']),
-                'volume': material_data.get('volume', structure.volume),
-                'formation_energy_per_atom': best_material.energy_per_atom,
+                'spacegroup': {
+                    'symbol': spacegroup_symbol,
+                    'number': spacegroup_number
+                },
+                'density': material_data.get('density', 'N/A'),
+                'volume': material_data.get('volume', 'N/A'),
+                'formation_energy_per_atom': material_data.get('formation_energy_per_atom', 'N/A'),
                 'band_gap': material_data.get('band_gap', 'N/A'),
-                'structure_type': structure_info['structure_type'],
-                'symmetry': structure_info['symmetry'],
-                'formula': formula
-            }
-            
-            return result, None
+                'formula': formula,
+                'pretty_formula': pretty_formula
+            }, None
             
     except Exception as e:
         return None, f"Error accessing Materials Project: {str(e)}"
+
+def create_enhanced_structure_plot(structure, formula, material_id):
+    """创建增强的晶体结构3D图"""
+    try:
+        # 获取晶格参数
+        lattice = structure.lattice
+        sites = structure.sites
+        
+        # 创建原子位置数据
+        x, y, z = [], [], []
+        colors, sizes, symbols, hover_texts = [], [], [], []
+        
+        # 改进的原子颜色映射（更接近MP的颜色）
+        color_map = {
+            'Li': '#CC80FF', 'La': '#70D4FF', 'Zr': '#4EACCE', 'O': '#FF0D0D',
+            'P': '#FF8000', 'S': '#FFFF30', 'Cl': '#1FF01F', 'Ge': '#668F8F',
+            'Y': '#94FFFF', 'F': '#90E050', 'Br': '#A62929', 'I': '#940094',
+            'Na': '#AB5CF2', 'K': '#8F40D4', 'Mg': '#8AFF00', 'Ca': '#3DFF00',
+            'Al': '#BFA6A6', 'Si': '#F0C8A0', 'Ti': '#BFC2C7', 'Fe': '#E06633'
+        }
+        
+        # 原子大小映射
+        size_map = {
+            'Li': 10, 'La': 18, 'Zr': 14, 'O': 12,
+            'P': 13, 'S': 12, 'Cl': 12, 'Ge': 14,
+            'Y': 14, 'F': 10, 'Br': 13, 'I': 15,
+            'Na': 12, 'K': 14, 'Mg': 13, 'Ca': 14,
+            'Al': 13, 'Si': 13, 'Ti': 14, 'Fe': 14
+        }
+        
+        for i, site in enumerate(sites):
+            x.append(site.coords[0])
+            y.append(site.coords[1])
+            z.append(site.coords[2])
+            element = site.species_string
+            colors.append(color_map.get(element, '#CCCCCC'))
+            sizes.append(size_map.get(element, 12))
+            symbols.append(element)
+            hover_texts.append(f"{element} atom<br>Position: ({site.coords[0]:.2f}, {site.coords[1]:.2f}, {site.coords[2]:.2f})")
+        
+        # 创建原子轨迹
+        atom_trace = go.Scatter3d(
+            x=x, y=y, z=z,
+            mode='markers+text',
+            marker=dict(
+                size=sizes,
+                color=colors,
+                opacity=0.95,
+                line=dict(width=3, color='white')
+            ),
+            text=symbols,
+            textposition="middle center",
+            textfont=dict(size=14, color='black'),
+            hoverinfo='text',
+            hovertext=hover_texts,
+            name='Atoms'
+        )
+        
+        # 创建晶格线
+        lines_x, lines_y, lines_z = [], [], []
+        line_colors = []
+        
+        # 绘制晶格向量
+        origin = [0, 0, 0]
+        a_vec = lattice.matrix[0]
+        b_vec = lattice.matrix[1]
+        c_vec = lattice.matrix[2]
+        
+        # a轴 - 红色
+        lines_x += [origin[0], a_vec[0], None]
+        lines_y += [origin[1], a_vec[1], None]
+        lines_z += [origin[2], a_vec[2], None]
+        line_colors += ['red', 'red', None]
+        
+        # b轴 - 绿色
+        lines_x += [origin[0], b_vec[0], None]
+        lines_y += [origin[1], b_vec[1], None]
+        lines_z += [origin[2], b_vec[2], None]
+        line_colors += ['green', 'green', None]
+        
+        # c轴 - 蓝色
+        lines_x += [origin[0], c_vec[0], None]
+        lines_y += [origin[1], c_vec[1], None]
+        lines_z += [origin[2], c_vec[2], None]
+        line_colors += ['blue', 'blue', None]
+        
+        lattice_trace = go.Scatter3d(
+            x=lines_x, y=lines_y, z=lines_z,
+            mode='lines',
+            line=dict(color=line_colors, width=8),
+            name='Lattice Vectors',
+            hoverinfo='none'
+        )
+        
+        # 创建图形
+        fig = go.Figure(data=[atom_trace, lattice_trace])
+        
+        # 更新布局
+        fig.update_layout(
+            title=dict(
+                text=f"Crystal Structure: {formula}<br><sub>Material ID: {material_id}</sub>",
+                x=0.5,
+                xanchor='center'
+            ),
+            scene=dict(
+                xaxis_title='X (Å)',
+                yaxis_title='Y (Å)',
+                zaxis_title='Z (Å)',
+                aspectmode='data',
+                camera=dict(
+                    eye=dict(x=1.8, y=1.8, z=1.8)
+                ),
+                bgcolor='white'
+            ),
+            width=800,
+            height=700,
+            margin=dict(l=20, r=20, b=50, t=80),
+            showlegend=True,
+            legend=dict(
+                x=0.02,
+                y=0.98,
+                bgcolor='rgba(255,255,255,0.8)'
+            )
+        )
+        
+        # 添加坐标轴样式
+        fig.update_scenes(
+            xaxis=dict(backgroundcolor="white", gridcolor="lightgray", showbackground=True),
+            yaxis=dict(backgroundcolor="white", gridcolor="lightgray", showbackground=True),
+            zaxis=dict(backgroundcolor="white", gridcolor="lightgray", showbackground=True)
+        )
+        
+        return fig
+        
+    except Exception as e:
+        st.error(f"Error creating structure plot: {str(e)}")
+        return None
 
 def analyze_structure_features(structure):
     """分析晶体结构特征"""
@@ -280,123 +386,76 @@ def analyze_structure_features(structure):
             'symmetry': 'unknown'
         }
 
-def plot_crystal_structure_plotly(structure, formula):
-    """使用plotly绘制3D晶体结构"""
+# 材料特征计算函数
+def calculate_material_features(formula):
+    """计算材料的组成特征"""
     try:
-        # 获取晶格参数
-        lattice = structure.lattice
-        sites = structure.sites
-        
-        # 创建原子位置数据
-        x, y, z = [], [], []
-        colors, sizes, symbols, hover_texts = [], [], [], []
-        
-        # 原子颜色映射
-        color_map = {
-            'Li': '#FF6B6B', 'La': '#4ECDC4', 'Zr': '#45B7D1', 'O': '#96CEB4',
-            'P': '#FECA57', 'S': '#FF9FF3', 'Cl': '#54A0FF', 'Ge': '#5F27CD',
-            'Y': '#00D2D3', 'F': '#FF9F43', 'Br': '#FF7979', 'I': '#BADCF4',
-            'Na': '#ABDEE6', 'K': '#D4A5A5', 'Mg': '#FFCC29', 'Ca': '#78C091',
-            'Al': '#C7CEEA', 'Si': '#F8C291', 'Ti': '#B8B8B8', 'Fe': '#FF6B6B'
-        }
-        
-        # 原子大小映射
-        size_map = {
-            'Li': 6, 'La': 12, 'Zr': 10, 'O': 8,
-            'P': 9, 'S': 8, 'Cl': 8, 'Ge': 10,
-            'Y': 10, 'F': 7, 'Br': 9, 'I': 11,
-            'Na': 8, 'K': 10, 'Mg': 9, 'Ca': 10,
-            'Al': 9, 'Si': 9, 'Ti': 10, 'Fe': 10
-        }
-        
-        for i, site in enumerate(sites):
-            x.append(site.coords[0])
-            y.append(site.coords[1])
-            z.append(site.coords[2])
-            element = site.species_string
-            colors.append(color_map.get(element, '#CCCCCC'))
-            sizes.append(size_map.get(element, 8))
-            symbols.append(element)
-            hover_texts.append(f"{element} ({i+1})<br>Position: ({site.coords[0]:.2f}, {site.coords[1]:.2f}, {site.coords[2]:.2f})")
-        
-        # 创建原子轨迹
-        atom_trace = go.Scatter3d(
-            x=x, y=y, z=z,
-            mode='markers+text',
-            marker=dict(
-                size=sizes,
-                color=colors,
-                opacity=0.9,
-                line=dict(width=2, color='darkgray')
-            ),
-            text=symbols,
-            textposition="middle center",
-            hoverinfo='text',
-            hovertext=hover_texts,
-            name='Atoms'
+        from matminer.featurizers.composition import (
+            ElementProperty, Meredig, Stoichiometry, IonProperty
         )
-        
-        # 创建晶格线
-        lines_x, lines_y, lines_z = [], [], []
-        
-        # 绘制晶格向量
-        origin = [0, 0, 0]
-        a_vec = lattice.matrix[0]
-        b_vec = lattice.matrix[1]
-        c_vec = lattice.matrix[2]
-        
-        # a轴
-        lines_x += [origin[0], a_vec[0], None]
-        lines_y += [origin[1], a_vec[1], None]
-        lines_z += [origin[2], a_vec[2], None]
-        
-        # b轴
-        lines_x += [origin[0], b_vec[0], None]
-        lines_y += [origin[1], b_vec[1], None]
-        lines_z += [origin[2], b_vec[2], None]
-        
-        # c轴
-        lines_x += [origin[0], c_vec[0], None]
-        lines_y += [origin[1], c_vec[1], None]
-        lines_z += [origin[2], c_vec[2], None]
-        
-        lattice_trace = go.Scatter3d(
-            x=lines_x, y=lines_y, z=lines_z,
-            mode='lines',
-            line=dict(color='black', width=5),
-            name='Lattice Vectors',
-            hoverinfo='none'
-        )
-        
-        # 创建图形
-        fig = go.Figure(data=[atom_trace, lattice_trace])
-        
-        # 更新布局
-        fig.update_layout(
-            title=f"Crystal Structure: {formula}",
-            scene=dict(
-                xaxis_title='X (Å)',
-                yaxis_title='Y (Å)',
-                zaxis_title='Z (Å)',
-                aspectmode='data',
-                camera=dict(
-                    eye=dict(x=1.5, y=1.5, z=1.5)
-                )
-            ),
-            width=700,
-            height=600,
-            margin=dict(l=0, r=0, b=0, t=40),
-            showlegend=True
-        )
-        
-        return fig
-        
-    except Exception as e:
-        st.error(f"Error plotting crystal structure: {str(e)}")
-        return None
+        from matminer.featurizers.conversions import StrToComposition, CompositionToOxidComposition
 
-# 其他函数保持不变...
-# [保留之前的 calculate_material_features, filter_selected_features 等函数]
+        df = pd.DataFrame({'Formula': [formula]})
+        stc = StrToComposition()
+        df = stc.featurize_dataframe(df, 'Formula', ignore_errors=True)
+
+        if 'composition' not in df.columns or df['composition'].iloc[0] is None:
+            return {'Formula': formula}
+
+        features = {'Formula': formula}
+
+        # 元素属性特征
+        ep = ElementProperty.from_preset('magpie')
+        df = ep.featurize_dataframe(df, 'composition', ignore_errors=True)
+
+        # Meredig
+        mer = Meredig()
+        df = mer.featurize_dataframe(df, 'composition', ignore_errors=True)
+
+        # 化学计量特征
+        sto = Stoichiometry()
+        df = sto.featurize_dataframe(df, 'composition', ignore_errors=True)
+
+        # 离子特征
+        cto = CompositionToOxidComposition()
+        df = cto.featurize_dataframe(df, 'composition', ignore_errors=True)
+        ion = IonProperty()
+        df = ion.featurize_dataframe(df, 'composition_oxid', ignore_errors=True)
+
+        # 数值特征提取
+        numeric_columns = df.select_dtypes(include=[np.number]).columns
+        for col in numeric_columns:
+            val = df[col].iloc[0]
+            features[col] = float(val) if not pd.isna(val) else 0.0
+
+        return features
+
+    except Exception as e:
+        st.warning(f"Feature calculation failed: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return {'Formula': formula}
+
+# 过滤特征 - 只显示指定的七个特征
+def filter_selected_features(features_dict, selected_descriptors, temperature):
+    """只显示选定的七个特征"""
+    filtered_features = {}
+    
+    # 添加温度特征
+    filtered_features['Temp'] = float(temperature)
+    
+    # 添加选定的七个特征
+    for feature_name in selected_descriptors:
+        if feature_name == 'Temp':
+            continue
+        
+        if feature_name in features_dict:
+            filtered_features[feature_name] = features_dict[feature_name]
+        else:
+            # 如果特征不存在，设为0
+            filtered_features[feature_name] = 0.0
+    
+    return filtered_features
 
 # 如果点击提交按钮
 if submit_button:
@@ -414,24 +473,23 @@ if submit_button:
                 try:
                     # 首先尝试从Materials Project获取晶体结构
                     if mp_api_key and mp_api_key.strip():
-                        with st.spinner("Fetching the most relevant crystal structure from Materials Project..."):
+                        with st.spinner("Fetching crystal structure from Materials Project..."):
                             # 修正化学公式
                             corrected_formula = formula_input.replace('.', '').replace('L1', 'Li').replace('l', 'I')
                             
-                            mp_data, mp_error = get_best_materials_project_structure(corrected_formula, mp_api_key)
+                            mp_data, mp_error = get_materials_project_structure_with_image(corrected_formula, mp_api_key)
                             
                             if mp_data and mp_error is None:
                                 st.success("✅ Crystal structure retrieved from Materials Project")
                                 
                                 # 显示材料信息
-                                st.subheader("Crystal Structure Information")
+                                st.subheader("📊 Crystal Structure Information")
                                 col1, col2 = st.columns(2)
                                 
                                 with col1:
-                                    st.write(f"**Material ID:** {mp_data['material_id']}")
-                                    st.write(f"**Formula:** {mp_data['formula']}")
+                                    st.write(f"**Material ID:** `{mp_data['material_id']}`")
+                                    st.write(f"**Formula:** {mp_data['pretty_formula']}")
                                     st.write(f"**Space Group:** {mp_data['spacegroup'].get('symbol', 'N/A')} ({mp_data['spacegroup'].get('number', 'N/A')})")
-                                    st.write(f"**Structure Type:** {mp_data['structure_type']}")
                                     
                                 with col2:
                                     if mp_data['density'] != 'N/A':
@@ -447,22 +505,112 @@ if submit_button:
                                     else:
                                         st.write(f"**Formation Energy:** N/A")
                                 
-                                # 绘制晶体结构
-                                st.subheader("3D Crystal Structure Visualization")
-                                fig = plot_crystal_structure_plotly(mp_data['structure'], corrected_formula)
+                                # 分析结构特征
+                                structure_info = analyze_structure_features(mp_data['structure'])
+                                
+                                # 显示结构分析
+                                st.subheader("🔬 Structure Analysis")
+                                col3, col4 = st.columns(2)
+                                with col3:
+                                    st.write(f"**Structure Type:** {structure_info['structure_type'].capitalize()}")
+                                with col4:
+                                    st.write(f"**Symmetry:** {structure_info['symmetry'].capitalize()}")
+                                
+                                # 创建并显示增强的3D结构图
+                                st.subheader("🎯 3D Crystal Structure Visualization")
+                                fig = create_enhanced_structure_plot(
+                                    mp_data['structure'], 
+                                    mp_data['pretty_formula'], 
+                                    mp_data['material_id']
+                                )
                                 if fig:
                                     st.plotly_chart(fig, use_container_width=True)
                                     
-                                    # 显示结构分析
-                                    st.info(f"**Structure Analysis:** {mp_data['structure_type'].capitalize()} structure with {mp_data['symmetry']} symmetry")
+                                    # 添加交互说明
+                                    st.info("""
+                                    **💡 Interactive Controls:**
+                                    - **Rotate:** Click and drag to rotate the structure
+                                    - **Zoom:** Use mouse wheel to zoom in/out
+                                    - **Pan:** Hold Shift and drag to pan
+                                    - **Reset:** Double-click to reset view
+                                    - **Hover:** Hover over atoms to see details
+                                    """)
+                                
                             else:
                                 st.warning(f"Could not retrieve crystal structure: {mp_error}")
                                 st.info("💡 The material might not exist in Materials Project database, or try a different formula")
                     else:
                         st.info("💡 Enter a Materials Project API key to view crystal structure information")
                     
-                    # 计算材料特征和预测部分保持不变...
-                    # [保留之前的特征计算和预测代码]
+                    # 计算材料特征
+                    features = calculate_material_features(formula_input)
+                    st.write(f"✅ Total features extracted: {len(features)}")
                     
+                    # 只显示选定的七个特征
+                    selected_features = filter_selected_features(features, required_descriptors, temperature)
+                    feature_df = pd.DataFrame([selected_features])
+                    
+                    st.subheader("Material Features")
+                    st.dataframe(feature_df)
+                
+                    if features:
+                        # 创建输入数据
+                        input_data = {
+                            "Formula": [formula_input],
+                            "Temp": [temperature],
+                        }
+                        
+                        # 添加数值特征
+                        numeric_features = {}
+                        for feature_name in required_descriptors:
+                            if feature_name == 'Temp':
+                                numeric_features[feature_name] = [temperature]
+                            elif feature_name in features:
+                                numeric_features[feature_name] = [features[feature_name]]
+                            else:
+                                numeric_features[feature_name] = [0.0]  # 默认值
+                            
+                        input_data.update(numeric_features)
+                            
+                        input_df = pd.DataFrame(input_data)
+                    
+                    # 加载模型并预测
+                    try:
+                        # 使用缓存的模型加载方式
+                        predictor = load_predictor()
+                        
+                        # 只使用最关键的模型进行预测，减少内存占用
+                        essential_models = ['CatBoost',
+                                            'ExtraTreesMSE',
+                                            'LightGBM',
+                                            'KNeighborsDist',
+                                            'WeightedEnsemble_L2',
+                                            'XGBoost']
+                                            
+                        predict_df = input_df.copy()
+                        predictions_dict = {}
+                        
+                        for model in essential_models:
+                            try:
+                                predictions = predictor.predict(predict_df, model=model)
+                                predictions_dict[model] = predictions
+                            except Exception as model_error:
+                                st.warning(f"Model {model} prediction failed: {str(model_error)}")
+                                predictions_dict[model] = "Error"
+
+                        # 显示预测结果
+                        st.write("Prediction Results (Essential Models):")
+                        st.markdown(
+                            "**Note:** WeightedEnsemble_L2 is a meta-model combining predictions from other models.")
+                        results_df = pd.DataFrame(predictions_dict)
+                        st.dataframe(results_df.iloc[:1,:])
+                        
+                        # 主动释放内存
+                        del predictor
+                        gc.collect()
+
+                    except Exception as e:
+                        st.error(f"Model loading failed: {str(e)}")
+
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
