@@ -411,75 +411,76 @@ if submit_button:
                         st.info("💡 Enter a Materials Project API key to view crystal structure information")
                     
                      # 计算材料特征
-                features = calculate_material_features(formula_input)
-                st.write(f"✅ Total features extracted: {len(features)}")
+                     features = calculate_material_features(formula_input)
+                     st.write(f"✅ Total features extracted: {len(features)}")
                 
-                # 只显示选定的七个特征
-                selected_features = filter_selected_features(features, required_descriptors, temperature)
-                feature_df = pd.DataFrame([selected_features])
-                
-                st.subheader("Material Features")
-                st.dataframe(feature_df)
+                     # 只显示选定的七个特征
+                     selected_features = filter_selected_features(features, required_descriptors, temperature)
+                     feature_df = pd.DataFrame([selected_features])
+                 
+                     st.subheader("Material Features")
+                     st.dataframe(feature_df)
             
-                if features:
-                    # 创建输入数据
-                    input_data = {
-                        "Formula": [formula_input],
-                       
-                        "Temp": [temperature],
-                    }
+                     if features:
+                         # 创建输入数据
+                         input_data = {
+                             "Formula": [formula_input],
+                         
+                             "Temp": [temperature],
+                              }
                     
-                    # 添加数值特征
-                    numeric_features = {}
-                    for feature_name in required_descriptors:
-                        if feature_name == 'Temp':
-                            numeric_features[feature_name] = [temperature]
-                        elif feature_name in features:
-                            numeric_features[feature_name] = [features[feature_name]]
-                        else:
-                            numeric_features[feature_name] = [0.0]  # 默认值
+                         # 添加数值特征
+                         numeric_features = {}
+                         for feature_name in required_descriptors:
+                             if feature_name == 'Temp':
+                                numeric_features[feature_name] = [temperature]
+                             elif feature_name in features:
+                                 numeric_features[feature_name] = [features[feature_name]]
+                             else:
+                                 numeric_features[feature_name] = [0.0]  # 默认值
                         
-                    input_data.update(numeric_features)
+                        input_data.update(numeric_features)
                         
-                    input_df = pd.DataFrame(input_data)
+                        input_df = pd.DataFrame(input_data)
                 
-                # 加载模型并预测
-                try:
-                    # 使用缓存的模型加载方式
-                    predictor = load_predictor()
-                    
-                    # 只使用最关键的模型进行预测，减少内存占用
-                    essential_models = ['CatBoost',
+                    # 加载模型并预测
+                    try:
+                        # 使用缓存的模型加载方式
+                      predictor = load_predictor()
+                      
+                      # 只使用最关键的模型进行预测，减少内存占用
+                      essential_models = ['CatBoost',
                                         'ExtraTreesMSE',
                                         'LightGBM',
                                         'KNeighborsDist',
                                         'WeightedEnsemble_L2',
                                         'XGBoost']
                                         
-                    predict_df = input_df.copy()
-                    predictions_dict = {}
+                      predict_df = input_df.copy()
+                      predictions_dict = {}
                     
-                    for model in essential_models:
-                        try:
-                            predictions = predictor.predict(predict_df, model=model)
-                            predictions_dict[model] = predictions
-                        except Exception as model_error:
-                            st.warning(f"Model {model} prediction failed: {str(model_error)}")
-                            predictions_dict[model] = "Error"
-
-                    # 显示预测结果
-                    st.write("Prediction Results (Essential Models):")
-                    st.markdown(
+                      for model in essential_models:
+                          try:
+                             predictions = predictor.predict(predict_df, model=model)
+                             predictions_dict[model] = predictions
+                          except Exception as model_error:
+                             st.warning(f"Model {model} prediction failed: {str(model_error)}")
+                             predictions_dict[model] = "Error"
+  
+                     # 显示预测结果
+                     st.write("Prediction Results (Essential Models):")
+                     st.markdown(
                         "**Note:** WeightedEnsemble_L2 is a meta-model combining predictions from other models.")
-                    results_df = pd.DataFrame(predictions_dict)
-                    st.dataframe(results_df.iloc[:1,:])
+                     results_df = pd.DataFrame(predictions_dict)
+                     st.dataframe(results_df.iloc[:1,:])
                     
-                    # 主动释放内存
-                    del predictor
-                    gc.collect()
-
+                     # 主动释放内存
+                     del predictor
+                     gc.collect()
+ 
                 except Exception as e:
                     st.error(f"Model loading failed: {str(e)}")
                     
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
+
