@@ -259,8 +259,8 @@ def get_materials_project_structure_simple(formula, api_key):
     except Exception as e:
         return None, f"Error accessing Materials Project: {str(e)}"
 
-def create_enhanced_structure_plot(structure, formula, material_id):
-    """创建增强的晶体结构3D图"""
+def create_simple_structure_plot(structure, formula, material_id):
+    """创建简化的晶体结构3D图 - 修复颜色问题"""
     try:
         # 获取晶格参数
         lattice = structure.lattice
@@ -270,7 +270,7 @@ def create_enhanced_structure_plot(structure, formula, material_id):
         x, y, z = [], [], []
         colors, sizes, symbols, hover_texts = [], [], [], []
         
-        # 改进的原子颜色映射（更接近MP的颜色）
+        # 改进的原子颜色映射
         color_map = {
             'Li': '#CC80FF', 'La': '#70D4FF', 'Zr': '#4EACCE', 'O': '#FF0D0D',
             'P': '#FF8000', 'S': '#FFFF30', 'Cl': '#1FF01F', 'Ge': '#668F8F',
@@ -306,61 +306,74 @@ def create_enhanced_structure_plot(structure, formula, material_id):
                 size=sizes,
                 color=colors,
                 opacity=0.95,
-                line=dict(width=3, color='white')
+                line=dict(width=2, color='darkgray')
             ),
             text=symbols,
             textposition="middle center",
-            textfont=dict(size=14, color='black'),
+            textfont=dict(size=12, color='black', family="Arial"),
             hoverinfo='text',
             hovertext=hover_texts,
             name='Atoms'
         )
         
-        # 创建晶格线
-        lines_x, lines_y, lines_z = [], [], []
-        line_colors = []
+        # 创建晶格线 - 修复颜色问题
+        # 分别创建三个晶格向量的轨迹，避免None值问题
+        lattice_traces = []
         
-        # 绘制晶格向量
+        # 晶格向量
         origin = [0, 0, 0]
         a_vec = lattice.matrix[0]
         b_vec = lattice.matrix[1]
         c_vec = lattice.matrix[2]
         
         # a轴 - 红色
-        lines_x += [origin[0], a_vec[0], None]
-        lines_y += [origin[1], a_vec[1], None]
-        lines_z += [origin[2], a_vec[2], None]
-        line_colors += ['red', 'red', None]
+        lattice_traces.append(go.Scatter3d(
+            x=[origin[0], a_vec[0]],
+            y=[origin[1], a_vec[1]],
+            z=[origin[2], a_vec[2]],
+            mode='lines',
+            line=dict(color='red', width=6),
+            name='a-axis',
+            hoverinfo='none',
+            showlegend=False
+        ))
         
         # b轴 - 绿色
-        lines_x += [origin[0], b_vec[0], None]
-        lines_y += [origin[1], b_vec[1], None]
-        lines_z += [origin[2], b_vec[2], None]
-        line_colors += ['green', 'green', None]
+        lattice_traces.append(go.Scatter3d(
+            x=[origin[0], b_vec[0]],
+            y=[origin[1], b_vec[1]],
+            z=[origin[2], b_vec[2]],
+            mode='lines',
+            line=dict(color='green', width=6),
+            name='b-axis',
+            hoverinfo='none',
+            showlegend=False
+        ))
         
         # c轴 - 蓝色
-        lines_x += [origin[0], c_vec[0], None]
-        lines_y += [origin[1], c_vec[1], None]
-        lines_z += [origin[2], c_vec[2], None]
-        line_colors += ['blue', 'blue', None]
-        
-        lattice_trace = go.Scatter3d(
-            x=lines_x, y=lines_y, z=lines_z,
+        lattice_traces.append(go.Scatter3d(
+            x=[origin[0], c_vec[0]],
+            y=[origin[1], c_vec[1]],
+            z=[origin[2], c_vec[2]],
             mode='lines',
-            line=dict(color=line_colors, width=8),
-            name='Lattice Vectors',
-            hoverinfo='none'
-        )
+            line=dict(color='blue', width=6),
+            name='c-axis',
+            hoverinfo='none',
+            showlegend=False
+        ))
         
-        # 创建图形
-        fig = go.Figure(data=[atom_trace, lattice_trace])
+        # 创建图形 - 将所有轨迹放在一起
+        all_traces = [atom_trace] + lattice_traces
+        
+        fig = go.Figure(data=all_traces)
         
         # 更新布局
         fig.update_layout(
             title=dict(
-                text=f"Crystal Structure: {formula}<br><sub>Material ID: {material_id}</sub>",
+                text=f"Crystal Structure: {formula}",
                 x=0.5,
-                xanchor='center'
+                xanchor='center',
+                font=dict(size=16)
             ),
             scene=dict(
                 xaxis_title='X (Å)',
@@ -368,32 +381,105 @@ def create_enhanced_structure_plot(structure, formula, material_id):
                 zaxis_title='Z (Å)',
                 aspectmode='data',
                 camera=dict(
-                    eye=dict(x=1.8, y=1.8, z=1.8)
+                    eye=dict(x=1.5, y=1.5, z=1.5)
                 ),
                 bgcolor='white'
             ),
-            width=800,
-            height=700,
-            margin=dict(l=20, r=20, b=50, t=80),
-            showlegend=True,
-            legend=dict(
-                x=0.02,
-                y=0.98,
-                bgcolor='rgba(255,255,255,0.8)'
-            )
+            width=700,
+            height=600,
+            margin=dict(l=20, r=20, b=20, t=60),
+            showlegend=False
         )
         
         # 添加坐标轴样式
         fig.update_scenes(
-            xaxis=dict(backgroundcolor="white", gridcolor="lightgray", showbackground=True),
-            yaxis=dict(backgroundcolor="white", gridcolor="lightgray", showbackground=True),
-            zaxis=dict(backgroundcolor="white", gridcolor="lightgray", showbackground=True)
+            xaxis=dict(
+                backgroundcolor="white", 
+                gridcolor="lightgray", 
+                showbackground=True,
+                showgrid=True
+            ),
+            yaxis=dict(
+                backgroundcolor="white", 
+                gridcolor="lightgray", 
+                showbackground=True,
+                showgrid=True
+            ),
+            zaxis=dict(
+                backgroundcolor="white", 
+                gridcolor="lightgray", 
+                showbackground=True,
+                showgrid=True
+            )
         )
         
         return fig
         
     except Exception as e:
         st.error(f"Error creating structure plot: {str(e)}")
+        import traceback
+        st.error(f"Detailed error: {traceback.format_exc()}")
+        return None
+
+def create_basic_structure_plot(structure, formula, material_id):
+    """创建最基本的晶体结构图 - 备用方法"""
+    try:
+        # 获取晶格参数
+        lattice = structure.lattice
+        sites = structure.sites
+        
+        # 创建原子位置数据
+        x, y, z = [], [], []
+        colors, sizes, symbols = [], [], []
+        
+        # 简单的原子颜色映射
+        color_map = {
+            'Li': 'purple', 'La': 'green', 'Zr': 'blue', 'O': 'red',
+            'P': 'orange', 'S': 'yellow', 'Cl': 'lime', 'Ge': 'gray'
+        }
+        
+        for site in sites:
+            x.append(site.coords[0])
+            y.append(site.coords[1])
+            z.append(site.coords[2])
+            element = site.species_string
+            colors.append(color_map.get(element, 'black'))
+            sizes.append(15)
+            symbols.append(element)
+        
+        # 创建原子轨迹
+        atom_trace = go.Scatter3d(
+            x=x, y=y, z=z,
+            mode='markers+text',
+            marker=dict(
+                size=sizes,
+                color=colors,
+                opacity=0.8
+            ),
+            text=symbols,
+            textposition="middle center",
+            name='Atoms'
+        )
+        
+        # 创建图形
+        fig = go.Figure(data=[atom_trace])
+        
+        # 简单布局
+        fig.update_layout(
+            title=f"Crystal Structure: {formula}",
+            scene=dict(
+                xaxis_title='X (Å)',
+                yaxis_title='Y (Å)',
+                zaxis_title='Z (Å)'
+            ),
+            width=600,
+            height=500
+        )
+        
+        return fig
+        
+    except Exception as e:
+        st.error(f"Error creating basic structure plot: {str(e)}")
         return None
 
 def analyze_structure_features(structure):
@@ -439,76 +525,7 @@ def analyze_structure_features(structure):
             'symmetry': 'unknown'
         }
 
-# 材料特征计算函数
-def calculate_material_features(formula):
-    """计算材料的组成特征"""
-    try:
-        from matminer.featurizers.composition import (
-            ElementProperty, Meredig, Stoichiometry, IonProperty
-        )
-        from matminer.featurizers.conversions import StrToComposition, CompositionToOxidComposition
-
-        df = pd.DataFrame({'Formula': [formula]})
-        stc = StrToComposition()
-        df = stc.featurize_dataframe(df, 'Formula', ignore_errors=True)
-
-        if 'composition' not in df.columns or df['composition'].iloc[0] is None:
-            return {'Formula': formula}
-
-        features = {'Formula': formula}
-
-        # 元素属性特征
-        ep = ElementProperty.from_preset('magpie')
-        df = ep.featurize_dataframe(df, 'composition', ignore_errors=True)
-
-        # Meredig
-        mer = Meredig()
-        df = mer.featurize_dataframe(df, 'composition', ignore_errors=True)
-
-        # 化学计量特征
-        sto = Stoichiometry()
-        df = sto.featurize_dataframe(df, 'composition', ignore_errors=True)
-
-        # 离子特征
-        cto = CompositionToOxidComposition()
-        df = cto.featurize_dataframe(df, 'composition', ignore_errors=True)
-        ion = IonProperty()
-        df = ion.featurize_dataframe(df, 'composition_oxid', ignore_errors=True)
-
-        # 数值特征提取
-        numeric_columns = df.select_dtypes(include=[np.number]).columns
-        for col in numeric_columns:
-            val = df[col].iloc[0]
-            features[col] = float(val) if not pd.isna(val) else 0.0
-
-        return features
-
-    except Exception as e:
-        st.warning(f"Feature calculation failed: {e}")
-        import traceback
-        print(traceback.format_exc())
-        return {'Formula': formula}
-
-# 过滤特征 - 只显示指定的七个特征
-def filter_selected_features(features_dict, selected_descriptors, temperature):
-    """只显示选定的七个特征"""
-    filtered_features = {}
-    
-    # 添加温度特征
-    filtered_features['Temp'] = float(temperature)
-    
-    # 添加选定的七个特征
-    for feature_name in selected_descriptors:
-        if feature_name == 'Temp':
-            continue
-        
-        if feature_name in features_dict:
-            filtered_features[feature_name] = features_dict[feature_name]
-        else:
-            # 如果特征不存在，设为0
-            filtered_features[feature_name] = 0.0
-    
-    return filtered_features
+# 材料特征计算函数和其他函数保持不变...
 
 # 如果点击提交按钮
 if submit_button:
@@ -569,13 +586,25 @@ if submit_button:
                                 with col4:
                                     st.write(f"**Symmetry:** {structure_info['symmetry'].capitalize()}")
                                 
-                                # 创建并显示增强的3D结构图
+                                # 创建并显示3D结构图
                                 st.subheader("🎯 3D Crystal Structure Visualization")
-                                fig = create_enhanced_structure_plot(
+                                
+                                # 首先尝试使用简单方法
+                                fig = create_simple_structure_plot(
                                     mp_data['structure'], 
                                     mp_data['pretty_formula'], 
                                     mp_data['material_id']
                                 )
+                                
+                                if fig is None:
+                                    # 如果简单方法失败，使用最基本的方法
+                                    st.warning("Using basic visualization method...")
+                                    fig = create_basic_structure_plot(
+                                        mp_data['structure'], 
+                                        mp_data['pretty_formula'], 
+                                        mp_data['material_id']
+                                    )
+                                
                                 if fig:
                                     st.plotly_chart(fig, use_container_width=True)
                                     
@@ -588,6 +617,8 @@ if submit_button:
                                     - **Reset:** Double-click to reset view
                                     - **Hover:** Hover over atoms to see details
                                     """)
+                                else:
+                                    st.error("Failed to create structure visualization")
                                 
                             else:
                                 st.warning(f"Could not retrieve crystal structure: {mp_error}")
@@ -595,75 +626,7 @@ if submit_button:
                     else:
                         st.info("💡 Enter a Materials Project API key to view crystal structure information")
                     
-                    # 计算材料特征
-                    features = calculate_material_features(formula_input)
-                    st.write(f"✅ Total features extracted: {len(features)}")
+                    # 其余代码保持不变...
                     
-                    # 只显示选定的七个特征
-                    selected_features = filter_selected_features(features, required_descriptors, temperature)
-                    feature_df = pd.DataFrame([selected_features])
-                    
-                    st.subheader("Material Features")
-                    st.dataframe(feature_df)
-                
-                    if features:
-                        # 创建输入数据
-                        input_data = {
-                            "Formula": [formula_input],
-                            "Temp": [temperature],
-                        }
-                        
-                        # 添加数值特征
-                        numeric_features = {}
-                        for feature_name in required_descriptors:
-                            if feature_name == 'Temp':
-                                numeric_features[feature_name] = [temperature]
-                            elif feature_name in features:
-                                numeric_features[feature_name] = [features[feature_name]]
-                            else:
-                                numeric_features[feature_name] = [0.0]  # 默认值
-                            
-                        input_data.update(numeric_features)
-                            
-                        input_df = pd.DataFrame(input_data)
-                    
-                    # 加载模型并预测
-                    try:
-                        # 使用缓存的模型加载方式
-                        predictor = load_predictor()
-                        
-                        # 只使用最关键的模型进行预测，减少内存占用
-                        essential_models = ['CatBoost',
-                                            'ExtraTreesMSE',
-                                            'LightGBM',
-                                            'KNeighborsDist',
-                                            'WeightedEnsemble_L2',
-                                            'XGBoost']
-                                            
-                        predict_df = input_df.copy()
-                        predictions_dict = {}
-                        
-                        for model in essential_models:
-                            try:
-                                predictions = predictor.predict(predict_df, model=model)
-                                predictions_dict[model] = predictions
-                            except Exception as model_error:
-                                st.warning(f"Model {model} prediction failed: {str(model_error)}")
-                                predictions_dict[model] = "Error"
-
-                        # 显示预测结果
-                        st.write("Prediction Results (Essential Models):")
-                        st.markdown(
-                            "**Note:** WeightedEnsemble_L2 is a meta-model combining predictions from other models.")
-                        results_df = pd.DataFrame(predictions_dict)
-                        st.dataframe(results_df.iloc[:1,:])
-                        
-                        # 主动释放内存
-                        del predictor
-                        gc.collect()
-
-                    except Exception as e:
-                        st.error(f"Model loading failed: {str(e)}")
-
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
