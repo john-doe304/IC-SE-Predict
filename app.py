@@ -51,40 +51,14 @@ st.markdown(
         font-size: 1.1em;
         border-radius: 10px;
     }
-    /* 减小指标卡片的字体大小 */
-    .stMetric {
-        font-size: 0.9em;
-    }
-    /* 减小特征提取成功信息的字体大小 */
-    .stWrite {
-        font-size: 0.9em;
-    }
-    /* 减小子标题的字体大小 */
-    h3 {
-        font-size: 1.2em;
-    }
-    /* 减小数据框的字体大小 */
-    .dataframe {
-        font-size: 0.8em;
-    }
-    /* 晶体结构显示样式 */
-    .crystal-structure {
-        margin: 20px 0;
-        text-align: center;
-    }
-    .error-message {
-        background-color: #ffebee;
-        border: 1px solid #f44336;
-        border-radius: 5px;
-        padding: 10px;
-        margin: 10px 0;
-    }
-    .structure-container {
-        border: 1px solid #ddd;
+    /* 晶体结构图片样式 */
+    .crystal-image {
+        border: 2px solid #ddd;
         border-radius: 10px;
-        padding: 15px;
+        padding: 10px;
         background-color: white;
         margin: 10px 0;
+        text-align: center;
     }
     </style>
     """,
@@ -120,7 +94,7 @@ mp_api_key = st.text_input("Materials Project API Key (optional):",
 # 提交按钮
 submit_button = st.button("Submit and Predict", key="predict_button")
 
-# 指定的描述符列表 - 你选择的七个特征
+# 指定的描述符列表
 required_descriptors = [
     'MagpieData mean CovalentRadius',
     'Temp',
@@ -131,14 +105,12 @@ required_descriptors = [
     'MagpieData mean NValence'
 ]
 
-# 缓存模型加载器以避免重复加载
+# 缓存模型加载器
 @st.cache_resource(show_spinner=False, max_entries=1)
 def load_predictor():
-    """缓存模型加载，避免重复加载导致内存溢出"""
     return TabularPredictor.load("./ag-20251024_075719")
 
 def validate_chemical_formula(formula):
-    """验证化学公式格式"""
     if not formula:
         return False, "Formula cannot be empty"
     
@@ -151,8 +123,8 @@ def validate_chemical_formula(formula):
     
     return True, "Valid formula"
 
-def get_materials_project_structure_with_visualization(formula, api_key):
-    """获取Materials Project的晶体结构和可视化数据"""
+def get_materials_project_structure_with_images(formula, api_key):
+    """获取Materials Project的晶体结构和图片"""
     if not api_key or not api_key.strip():
         return None, "No API key provided"
     
@@ -160,7 +132,7 @@ def get_materials_project_structure_with_visualization(formula, api_key):
         api_key = api_key.strip()
         
         if len(api_key) != 32 or not all(c.isalnum() for c in api_key):
-            return None, "Invalid API key format. API key should be 32 alphanumeric characters."
+            return None, "Invalid API key format"
         
         with MPRester(api_key) as mpr:
             # 搜索材料
@@ -169,7 +141,7 @@ def get_materials_project_structure_with_visualization(formula, api_key):
             if not entries:
                 return None, f"No materials found for formula: {formula}"
             
-            # 选择第一个材料（通常是最稳定的）
+            # 选择第一个材料
             material = entries[0]
             structure = material.structure
             material_id = material.entry_id
@@ -192,9 +164,7 @@ def get_materials_project_structure_with_visualization(formula, api_key):
                     volume = material_data.volume
                     formation_energy = material_data.formation_energy_per_atom
                     band_gap = material_data.band_gap
-                    
                 else:
-                    # 如果summary.search失败，使用基本数据
                     pretty_formula = formula
                     spacegroup_symbol = "N/A"
                     spacegroup_number = "N/A"
@@ -203,8 +173,7 @@ def get_materials_project_structure_with_visualization(formula, api_key):
                     formation_energy = material.energy_per_atom
                     band_gap = "N/A"
                     
-            except Exception as detail_error:
-                # 如果获取详细信息失败，使用基本数据
+            except Exception:
                 pretty_formula = formula
                 spacegroup_symbol = "N/A"
                 spacegroup_number = "N/A"
@@ -216,10 +185,7 @@ def get_materials_project_structure_with_visualization(formula, api_key):
             return {
                 'structure': structure,
                 'material_id': material_id,
-                'spacegroup': {
-                    'symbol': spacegroup_symbol,
-                    'number': spacegroup_number
-                },
+                'spacegroup': {'symbol': spacegroup_symbol, 'number': spacegroup_number},
                 'density': density,
                 'volume': volume,
                 'formation_energy_per_atom': formation_energy,
@@ -231,367 +197,136 @@ def get_materials_project_structure_with_visualization(formula, api_key):
     except Exception as e:
         return None, f"Error accessing Materials Project: {str(e)}"
 
-def get_materials_project_visualization_url(material_id, api_key):
-    """获取Materials Project官方可视化URL"""
+def get_materials_project_image_url(material_id, api_key, image_type="standard"):
+    """获取Materials Project晶体结构图片的URL"""
     try:
-        # Materials Project的官方可视化URL格式
-        base_url = "https://next-gen.materialsproject.org"
-        visualization_url = f"{base_url}/materials/{material_id}"
-        
-        return visualization_url
+        # Materials Project的图片URL格式
+        if image_type == "standard":
+            # 标准晶体结构图
+            return f"https://next-gen.materialsproject.org/api/v2/materials/{material_id}/image?formula=&hideControls=true"
+        elif image_type == "thermal_ellipsoid":
+            # 热椭球图
+            return f"https://next-gen.materialsproject.org/api/v2/materials/{material_id}/image?formula=&ellipsoids=true&hideControls=true"
+        elif image_type == "polyhedral":
+            # 多面体图
+            return f"https://next-gen.materialsproject.org/api/v2/materials/{material_id}/image?formula=&polyhedra=true&hideControls=true"
     except Exception as e:
         return None
 
-def display_materials_project_visualization(material_id, api_key):
-    """显示Materials Project的官方晶体结构可视化"""
+def download_materials_project_image(material_id, api_key, image_type="standard"):
+    """下载Materials Project的晶体结构图片"""
     try:
-        # 获取可视化URL
-        viz_url = get_materials_project_visualization_url(material_id, api_key)
+        image_url = get_materials_project_image_url(material_id, api_key, image_type)
         
-        if viz_url:
-            st.markdown(f"""
-            <div style="text-align: center; margin: 20px 0;">
-                <a href="{viz_url}" target="_blank" style="
-                    display: inline-block;
-                    padding: 10px 20px;
-                    background-color: #4CAF50;
-                    color: white;
-                    text-decoration: none;
-                    border-radius: 5px;
-                    font-weight: bold;
-                ">
-                🎯 View Interactive Crystal Structure on Materials Project
-                </a>
-            </div>
-            """, unsafe_allow_html=True)
+        if not image_url:
+            return None
             
-            return True
+        # 使用API密钥进行认证
+        headers = {
+            "X-API-KEY": api_key,
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        
+        response = requests.get(image_url, headers=headers, timeout=30)
+        
+        if response.status_code == 200:
+            return Image.open(BytesIO(response.content))
         else:
-            return False
+            return None
             
     except Exception as e:
-        st.error(f"Error displaying Materials Project visualization: {str(e)}")
+        return None
+
+def display_crystal_structure_images(material_id, api_key, formula):
+    """显示Materials Project的晶体结构图片"""
+    try:
+        st.subheader("🎯 Crystal Structure from Materials Project")
+        
+        # 显示标准晶体结构图
+        with st.spinner("Loading crystal structure image..."):
+            standard_img = download_materials_project_image(material_id, api_key, "standard")
+            
+            if standard_img:
+                st.markdown(f'<div class="crystal-image">', unsafe_allow_html=True)
+                st.image(standard_img, caption=f"Standard Crystal Structure: {formula}", use_column_width=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+            else:
+                # 如果直接下载失败，显示官方链接
+                st.info("💡 Click the button below to view the crystal structure on Materials Project website:")
+                viz_url = f"https://next-gen.materialsproject.org/materials/{material_id}"
+                st.markdown(f"""
+                <div style="text-align: center; margin: 20px 0;">
+                    <a href="{viz_url}" target="_blank" style="
+                        display: inline-block;
+                        padding: 10px 20px;
+                        background-color: #4CAF50;
+                        color: white;
+                        text-decoration: none;
+                        border-radius: 5px;
+                        font-weight: bold;
+                    ">
+                    🎯 View Crystal Structure on Materials Project
+                    </a>
+                </div>
+                """, unsafe_allow_html=True)
+                
+        # 尝试显示其他类型的图片
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            with st.spinner("Loading polyhedral view..."):
+                polyhedral_img = download_materials_project_image(material_id, api_key, "polyhedral")
+                if polyhedral_img:
+                    st.image(polyhedral_img, caption="Polyhedral View", use_column_width=True)
+        
+        with col2:
+            with st.spinner("Loading ellipsoid view..."):
+                ellipsoid_img = download_materials_project_image(material_id, api_key, "thermal_ellipsoid")
+                if ellipsoid_img:
+                    st.image(ellipsoid_img, caption="Thermal Ellipsoids", use_column_width=True)
+                    
+        return True
+        
+    except Exception as e:
+        st.error(f"Error displaying crystal structure images: {str(e)}")
         return False
 
-def create_periodic_structure_plot(structure, formula, material_id):
-    """创建考虑周期性边界条件的晶体结构3D图"""
+def get_crystal_structure_screenshot(material_id, api_key):
+    """备选方案：使用Materials Project的截图功能"""
     try:
-        # 获取晶格参数
-        lattice = structure.lattice
-        sites = structure.sites
+        # 使用Materials Project的embed功能
+        embed_url = f"https://next-gen.materialsproject.org/materials/{material_id}?embed=true"
         
-        # 创建扩展的晶胞（2x2x2）来显示周期性
-        x, y, z = [], [], []
-        colors, sizes, symbols, hover_texts = [], [], [], []
-        
-        # 原子颜色映射
-        color_map = {
-            'Li': '#CC80FF', 'La': '#70D4FF', 'Zr': '#4EACCE', 'O': '#FF0D0D',
-            'P': '#FF8000', 'S': '#FFFF30', 'Cl': '#1FF01F', 'Ge': '#668F8F',
-            'Y': '#94FFFF', 'F': '#90E050', 'Br': '#A62929', 'I': '#940094',
-            'Na': '#AB5CF2', 'K': '#8F40D4', 'Mg': '#8AFF00', 'Ca': '#3DFF00',
-            'Al': '#BFA6A6', 'Si': '#F0C8A0', 'Ti': '#BFC2C7', 'Fe': '#E06633',
-            'H': '#FFFFFF', 'C': '#909090', 'N': '#3050F8', 'B': '#F0B0B0'
+        headers = {
+            "X-API-KEY": api_key,
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
         
-        # 原子大小映射
-        size_map = {
-            'Li': 6, 'La': 12, 'Zr': 10, 'O': 8,
-            'P': 9, 'S': 8, 'Cl': 8, 'Ge': 10,
-            'Y': 10, 'F': 6, 'Br': 9, 'I': 11,
-            'Na': 8, 'K': 10, 'Mg': 9, 'Ca': 10,
-            'Al': 9, 'Si': 9, 'Ti': 10, 'Fe': 10,
-            'H': 4, 'C': 8, 'N': 7, 'B': 7
-        }
+        response = requests.get(embed_url, headers=headers, timeout=30)
         
-        # 创建扩展的晶胞 (-1, 0, 1 在三个方向上)
-        for i in range(-1, 2):
-            for j in range(-1, 2):
-                for k in range(-1, 2):
-                    for site in sites:
-                        # 计算扩展后的原子位置
-                        coords = site.coords + i * lattice.matrix[0] + j * lattice.matrix[1] + k * lattice.matrix[2]
-                        x.append(coords[0])
-                        y.append(coords[1])
-                        z.append(coords[2])
-                        element = site.species_string
-                        colors.append(color_map.get(element, '#CCCCCC'))
-                        sizes.append(size_map.get(element, 8))
-                        symbols.append(element)
-                        hover_texts.append(f"{element} atom<br>Position: ({coords[0]:.2f}, {coords[1]:.2f}, {coords[2]:.2f})<br>Unit cell: ({i},{j},{k})")
-        
-        # 创建原子轨迹
-        atom_trace = go.Scatter3d(
-            x=x, y=y, z=z,
-            mode='markers',
-            marker=dict(
-                size=sizes,
-                color=colors,
-                opacity=0.8,
-                line=dict(width=1, color='darkgray')
-            ),
-            hoverinfo='text',
-            hovertext=hover_texts,
-            name='Atoms'
-        )
-        
-        # 创建晶格线 - 只显示中心晶胞的晶格
-        lattice_traces = []
-        origin = [0, 0, 0]
-        a_vec = lattice.matrix[0]
-        b_vec = lattice.matrix[1]
-        c_vec = lattice.matrix[2]
-        
-        # 创建晶胞边界线
-        vertices = [
-            origin,
-            a_vec,
-            b_vec,
-            c_vec,
-            a_vec + b_vec,
-            a_vec + c_vec,
-            b_vec + c_vec,
-            a_vec + b_vec + c_vec
-        ]
-        
-        # 定义晶胞边界线
-        edges = [
-            (0, 1), (0, 2), (0, 3),
-            (1, 4), (1, 5),
-            (2, 4), (2, 6),
-            (3, 5), (3, 6),
-            (4, 7), (5, 7), (6, 7)
-        ]
-        
-        for edge in edges:
-            start, end = edge
-            lattice_traces.append(go.Scatter3d(
-                x=[vertices[start][0], vertices[end][0]],
-                y=[vertices[start][1], vertices[end][1]],
-                z=[vertices[start][2], vertices[end][2]],
-                mode='lines',
-                line=dict(color='black', width=4),
-                hoverinfo='none',
-                showlegend=False
-            ))
-        
-        # 创建图形
-        all_traces = [atom_trace] + lattice_traces
-        
-        fig = go.Figure(data=all_traces)
-        
-        # 计算合适的视图范围
-        all_x = x + [v[0] for v in vertices]
-        all_y = y + [v[1] for v in vertices]
-        all_z = z + [v[2] for v in vertices]
-        
-        x_range = [min(all_x) - 1, max(all_x) + 1]
-        y_range = [min(all_y) - 1, max(all_y) + 1]
-        z_range = [min(all_z) - 1, max(all_z) + 1]
-        
-        # 更新布局
-        fig.update_layout(
-            title=dict(
-                text=f"Crystal Structure: {formula} (3×3×3 supercell)",
-                x=0.5,
-                xanchor='center',
-                font=dict(size=16)
-            ),
-            scene=dict(
-                xaxis_title='X (Å)',
-                yaxis_title='Y (Å)',
-                zaxis_title='Z (Å)',
-                aspectmode='cube',
-                camera=dict(
-                    eye=dict(x=1.5, y=1.5, z=1.5)
-                ),
-                xaxis=dict(range=x_range, backgroundcolor="white", gridcolor="lightgray", showbackground=True),
-                yaxis=dict(range=y_range, backgroundcolor="white", gridcolor="lightgray", showbackground=True),
-                zaxis=dict(range=z_range, backgroundcolor="white", gridcolor="lightgray", showbackground=True),
-                bgcolor='white'
-            ),
-            width=700,
-            height=600,
-            margin=dict(l=20, r=20, b=20, t=60),
-            showlegend=False
-        )
-        
-        return fig
-        
+        if response.status_code == 200:
+            # 这里可以进一步处理嵌入内容
+            return None  # 简化处理
+        else:
+            return None
+            
     except Exception as e:
-        st.error(f"Error creating periodic structure plot: {str(e)}")
-        import traceback
-        st.error(f"Detailed error: {traceback.format_exc()}")
-        return None
-
-def create_simple_unit_cell_plot(structure, formula, material_id):
-    """创建只显示单个晶胞的简化结构图"""
-    try:
-        # 获取晶格参数
-        lattice = structure.lattice
-        sites = structure.sites
-        
-        # 创建原子位置数据（只显示单个晶胞）
-        x, y, z = [], [], []
-        colors, sizes, symbols, hover_texts = [], [], [], []
-        
-        # 原子颜色映射
-        color_map = {
-            'Li': '#CC80FF', 'La': '#70D4FF', 'Zr': '#4EACCE', 'O': '#FF0D0D',
-            'P': '#FF8000', 'S': '#FFFF30', 'Cl': '#1FF01F', 'Ge': '#668F8F',
-            'Y': '#94FFFF', 'F': '#90E050', 'Br': '#A62929', 'I': '#940094',
-            'Na': '#AB5CF2', 'K': '#8F40D4', 'Mg': '#8AFF00', 'Ca': '#3DFF00',
-            'Al': '#BFA6A6', 'Si': '#F0C8A0', 'Ti': '#BFC2C7', 'Fe': '#E06633'
-        }
-        
-        for site in sites:
-            x.append(site.coords[0])
-            y.append(site.coords[1])
-            z.append(site.coords[2])
-            element = site.species_string
-            colors.append(color_map.get(element, '#CCCCCC'))
-            sizes.append(12)
-            symbols.append(element)
-            hover_texts.append(f"{element} atom<br>Position: ({site.coords[0]:.2f}, {site.coords[1]:.2f}, {site.coords[2]:.2f})")
-        
-        # 创建原子轨迹
-        atom_trace = go.Scatter3d(
-            x=x, y=y, z=z,
-            mode='markers+text',
-            marker=dict(
-                size=sizes,
-                color=colors,
-                opacity=0.9,
-                line=dict(width=2, color='darkgray')
-            ),
-            text=symbols,
-            textposition="middle center",
-            textfont=dict(size=10, color='black', family="Arial", weight="bold"),
-            hoverinfo='text',
-            hovertext=hover_texts,
-            name='Atoms'
-        )
-        
-        # 创建晶胞边界线
-        lattice_traces = []
-        origin = [0, 0, 0]
-        a_vec = lattice.matrix[0]
-        b_vec = lattice.matrix[1]
-        c_vec = lattice.matrix[2]
-        
-        # 创建晶胞顶点
-        vertices = [
-            origin,
-            a_vec,
-            b_vec,
-            c_vec,
-            a_vec + b_vec,
-            a_vec + c_vec,
-            b_vec + c_vec,
-            a_vec + b_vec + c_vec
-        ]
-        
-        # 定义晶胞边界线
-        edges = [
-            (0, 1), (0, 2), (0, 3),
-            (1, 4), (1, 5),
-            (2, 4), (2, 6),
-            (3, 5), (3, 6),
-            (4, 7), (5, 7), (6, 7)
-        ]
-        
-        for edge in edges:
-            start, end = edge
-            lattice_traces.append(go.Scatter3d(
-                x=[vertices[start][0], vertices[end][0]],
-                y=[vertices[start][1], vertices[end][1]],
-                z=[vertices[start][2], vertices[end][2]],
-                mode='lines',
-                line=dict(color='black', width=5),
-                hoverinfo='none',
-                showlegend=False
-            ))
-        
-        # 创建图形
-        all_traces = [atom_trace] + lattice_traces
-        
-        fig = go.Figure(data=all_traces)
-        
-        # 更新布局
-        fig.update_layout(
-            title=dict(
-                text=f"Crystal Structure: {formula} (Unit Cell)",
-                x=0.5,
-                xanchor='center',
-                font=dict(size=16)
-            ),
-            scene=dict(
-                xaxis_title='X (Å)',
-                yaxis_title='Y (Å)',
-                zaxis_title='Z (Å)',
-                aspectmode='data',
-                camera=dict(
-                    eye=dict(x=1.5, y=1.5, z=1.5)
-                ),
-                bgcolor='white'
-            ),
-            width=700,
-            height=600,
-            margin=dict(l=20, r=20, b=20, t=60),
-            showlegend=False
-        )
-        
-        # 添加坐标轴样式
-        fig.update_scenes(
-            xaxis=dict(
-                backgroundcolor="white", 
-                gridcolor="lightgray", 
-                showbackground=True,
-                showgrid=True
-            ),
-            yaxis=dict(
-                backgroundcolor="white", 
-                gridcolor="lightgray", 
-                showbackground=True,
-                showgrid=True
-            ),
-            zaxis=dict(
-                backgroundcolor="white", 
-                gridcolor="lightgray", 
-                showbackground=True,
-                showgrid=True
-            )
-        )
-        
-        return fig
-        
-    except Exception as e:
-        st.error(f"Error creating unit cell plot: {str(e)}")
         return None
 
 def analyze_structure_features(structure):
     """分析晶体结构特征"""
     try:
-        # 计算密度
         density = structure.density
         
-        # 判断结构类型
-        lattice_type = "unknown"
-        symmetry = "low"
-        
-        # 分析晶格参数判断对称性
         a, b, c = structure.lattice.abc
         alpha, beta, gamma = structure.lattice.angles
         
-        # 判断立方晶系
         if abs(a - b) < 0.1 and abs(b - c) < 0.1 and all(abs(angle - 90) < 1 for angle in [alpha, beta, gamma]):
             lattice_type = "cubic"
             symmetry = "high"
-        # 判断四方晶系
         elif abs(a - b) < 0.1 and abs(alpha - 90) < 1 and abs(beta - 90) < 1 and abs(gamma - 90) < 1:
             lattice_type = "tetragonal"
             symmetry = "medium"
-        # 判断六方晶系
         elif abs(a - b) < 0.1 and abs(alpha - 90) < 1 and abs(beta - 90) < 1 and abs(gamma - 120) < 1:
             lattice_type = "hexagonal"
             symmetry = "medium"
@@ -617,7 +352,6 @@ if submit_button:
     if not formula_input:
         st.error("Please enter a valid chemical formula.")
     else:
-        # 验证化学公式
         is_valid, validation_msg = validate_chemical_formula(formula_input)
         
         if not is_valid:
@@ -626,13 +360,11 @@ if submit_button:
         else:
             with st.spinner("Processing material and making predictions..."):
                 try:
-                    # 首先尝试从Materials Project获取晶体结构
                     if mp_api_key and mp_api_key.strip():
                         with st.spinner("Fetching crystal structure from Materials Project..."):
-                            # 修正化学公式
                             corrected_formula = formula_input.replace('.', '').replace('L1', 'Li').replace('l', 'I').replace('3272', '3Zr2')
                             
-                            mp_data, mp_error = get_materials_project_structure_with_visualization(corrected_formula, mp_api_key)
+                            mp_data, mp_error = get_materials_project_structure_with_images(corrected_formula, mp_api_key)
                             
                             if mp_data and mp_error is None:
                                 st.success("✅ Crystal structure retrieved from Materials Project")
@@ -649,16 +381,10 @@ if submit_button:
                                 with col2:
                                     if mp_data['density'] != 'N/A':
                                         st.write(f"**Density:** {mp_data['density']:.2f} g/cm³")
-                                    else:
-                                        st.write(f"**Density:** N/A")
                                     if mp_data['volume'] != 'N/A':
                                         st.write(f"**Volume:** {mp_data['volume']:.2f} Å³")
-                                    else:
-                                        st.write(f"**Volume:** N/A")
                                     if mp_data['formation_energy_per_atom'] != 'N/A':
                                         st.write(f"**Formation Energy:** {mp_data['formation_energy_per_atom']:.3f} eV/atom")
-                                    else:
-                                        st.write(f"**Formation Energy:** N/A")
                                 
                                 # 分析结构特征
                                 structure_info = analyze_structure_features(mp_data['structure'])
@@ -671,69 +397,89 @@ if submit_button:
                                 with col4:
                                     st.write(f"**Symmetry:** {structure_info['symmetry'].capitalize()}")
                                 
-                                # 显示Materials Project官方可视化链接
-                                st.subheader("🎯 Interactive Crystal Structure")
-                                display_materials_project_visualization(mp_data['material_id'], mp_api_key)
-                                
-                                # 显示本地的3D可视化
-                                st.subheader("🔍 3D Structure Visualization")
-                                
-                                # 让用户选择可视化类型
-                                viz_type = st.radio("Select visualization type:", 
-                                                  ["Unit Cell Only", "3×3×3 Supercell"], 
-                                                  index=0)
-                                
-                                if viz_type == "Unit Cell Only":
-                                    fig = create_simple_unit_cell_plot(
-                                        mp_data['structure'], 
-                                        mp_data['pretty_formula'], 
-                                        mp_data['material_id']
-                                    )
-                                else:
-                                    fig = create_periodic_structure_plot(
-                                        mp_data['structure'], 
-                                        mp_data['pretty_formula'], 
-                                        mp_data['material_id']
-                                    )
-                                
-                                if fig:
-                                    st.plotly_chart(fig, use_container_width=True)
-                                    
-                                    # 添加交互说明
-                                    st.info("""
-                                    **💡 Interactive Controls:**
-                                    - **Rotate:** Click and drag to rotate the structure
-                                    - **Zoom:** Use mouse wheel to zoom in/out
-                                    - **Pan:** Hold Shift and drag to pan
-                                    - **Reset:** Double-click to reset view
-                                    - **Hover:** Hover over atoms to see details
-                                    """)
-                                    
-                                    # 添加解释
-                                    if viz_type == "Unit Cell Only":
-                                        st.info("""
-                                        **📝 About this visualization:**
-                                        - Shows only the atoms within one unit cell
-                                        - Black lines represent the unit cell boundaries
-                                        - This view helps understand the basic repeating pattern
-                                        """)
-                                    else:
-                                        st.info("""
-                                        **📝 About this visualization:**
-                                        - Shows a 3×3×3 supercell to demonstrate periodicity
-                                        - Displays how the structure repeats in 3D space
-                                        - Helps visualize the crystal packing
-                                        """)
-                                else:
-                                    st.warning("3D visualization not available")
+                                # 直接显示Materials Project的晶体结构图片
+                                display_crystal_structure_images(
+                                    mp_data['material_id'], 
+                                    mp_api_key, 
+                                    mp_data['pretty_formula']
+                                )
                                 
                             else:
                                 st.warning(f"Could not retrieve crystal structure: {mp_error}")
-                                st.info("💡 The material might not exist in Materials Project database, or try a different formula")
+                                st.info("💡 The material might not exist in Materials Project database")
                     else:
                         st.info("💡 Enter a Materials Project API key to view crystal structure information")
                     
-                    # 其余代码保持不变...
+                     # 计算材料特征
+                features = calculate_material_features(formula_input)
+                st.write(f"✅ Total features extracted: {len(features)}")
+                
+                # 只显示选定的七个特征
+                selected_features = filter_selected_features(features, required_descriptors, temperature)
+                feature_df = pd.DataFrame([selected_features])
+                
+                st.subheader("Material Features")
+                st.dataframe(feature_df)
+            
+                if features:
+                    # 创建输入数据
+                    input_data = {
+                        "Formula": [formula_input],
+                       
+                        "Temp": [temperature],
+                    }
+                    
+                    # 添加数值特征
+                    numeric_features = {}
+                    for feature_name in required_descriptors:
+                        if feature_name == 'Temp':
+                            numeric_features[feature_name] = [temperature]
+                        elif feature_name in features:
+                            numeric_features[feature_name] = [features[feature_name]]
+                        else:
+                            numeric_features[feature_name] = [0.0]  # 默认值
+                        
+                    input_data.update(numeric_features)
+                        
+                    input_df = pd.DataFrame(input_data)
+                
+                # 加载模型并预测
+                try:
+                    # 使用缓存的模型加载方式
+                    predictor = load_predictor()
+                    
+                    # 只使用最关键的模型进行预测，减少内存占用
+                    essential_models = ['CatBoost',
+                                        'ExtraTreesMSE',
+                                        'LightGBM',
+                                        'KNeighborsDist',
+                                        'WeightedEnsemble_L2',
+                                        'XGBoost']
+                                        
+                    predict_df = input_df.copy()
+                    predictions_dict = {}
+                    
+                    for model in essential_models:
+                        try:
+                            predictions = predictor.predict(predict_df, model=model)
+                            predictions_dict[model] = predictions
+                        except Exception as model_error:
+                            st.warning(f"Model {model} prediction failed: {str(model_error)}")
+                            predictions_dict[model] = "Error"
+
+                    # 显示预测结果
+                    st.write("Prediction Results (Essential Models):")
+                    st.markdown(
+                        "**Note:** WeightedEnsemble_L2 is a meta-model combining predictions from other models.")
+                    results_df = pd.DataFrame(predictions_dict)
+                    st.dataframe(results_df.iloc[:1,:])
+                    
+                    # 主动释放内存
+                    del predictor
+                    gc.collect()
+
+                except Exception as e:
+                    st.error(f"Model loading failed: {str(e)}")
                     
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
