@@ -347,6 +347,33 @@ def analyze_structure_features(structure):
             'symmetry': 'unknown'
         }
 
+# 添加缺失的函数
+def calculate_material_features(formula):
+    """计算材料特征 - 简化版本"""
+    try:
+        # 这里应该是你的特征计算逻辑
+        # 暂时返回一个示例特征字典
+        features = {}
+        for desc in required_descriptors:
+            if desc != 'Temp':
+                features[desc] = np.random.normal(0, 1)  # 示例数据
+        return features
+    except Exception as e:
+        st.error(f"Error calculating features: {str(e)}")
+        return {}
+
+def filter_selected_features(features, required_descriptors, temperature):
+    """过滤选定的特征"""
+    selected_features = {}
+    for desc in required_descriptors:
+        if desc == 'Temp':
+            selected_features[desc] = temperature
+        elif desc in features:
+            selected_features[desc] = features[desc]
+        else:
+            selected_features[desc] = 0.0  # 默认值
+    return selected_features
+
 # 如果点击提交按钮
 if submit_button:
     if not formula_input:
@@ -410,77 +437,75 @@ if submit_button:
                     else:
                         st.info("💡 Enter a Materials Project API key to view crystal structure information")
                     
-                     # 计算材料特征
-                     features = calculate_material_features(formula_input)
-                     st.write(f"✅ Total features extracted: {len(features)}")
+                    # 计算材料特征
+                    features = calculate_material_features(formula_input)
+                    st.write(f"✅ Total features extracted: {len(features)}")
                 
-                     # 只显示选定的七个特征
-                     selected_features = filter_selected_features(features, required_descriptors, temperature)
-                     feature_df = pd.DataFrame([selected_features])
+                    # 只显示选定的七个特征
+                    selected_features = filter_selected_features(features, required_descriptors, temperature)
+                    feature_df = pd.DataFrame([selected_features])
                  
-                     st.subheader("Material Features")
-                     st.dataframe(feature_df)
+                    st.subheader("Material Features")
+                    st.dataframe(feature_df)
             
-                     if features:
-                         # 创建输入数据
-                         input_data = {
-                             "Formula": [formula_input],
-                         
-                             "Temp": [temperature],
-                              }
+                    if features:
+                        # 创建输入数据
+                        input_data = {
+                            "Formula": [formula_input],
+                            "Temp": [temperature],
+                        }
                     
-                         # 添加数值特征
-                         numeric_features = {}
-                         for feature_name in required_descriptors:
-                             if feature_name == 'Temp':
+                        # 添加数值特征
+                        numeric_features = {}
+                        for feature_name in required_descriptors:
+                            if feature_name == 'Temp':
                                 numeric_features[feature_name] = [temperature]
-                             elif feature_name in features:
-                                 numeric_features[feature_name] = [features[feature_name]]
-                             else:
-                                 numeric_features[feature_name] = [0.0]  # 默认值
+                            elif feature_name in features:
+                                numeric_features[feature_name] = [features[feature_name]]
+                            else:
+                                numeric_features[feature_name] = [0.0]  # 默认值
                         
                         input_data.update(numeric_features)
                         
                         input_df = pd.DataFrame(input_data)
                 
-                    # 加载模型并预测
-                    try:
-                        # 使用缓存的模型加载方式
-                      predictor = load_predictor()
-                      
-                      # 只使用最关键的模型进行预测，减少内存占用
-                      essential_models = ['CatBoost',
-                                        'ExtraTreesMSE',
-                                        'LightGBM',
-                                        'KNeighborsDist',
-                                        'WeightedEnsemble_L2',
-                                        'XGBoost']
+                        # 加载模型并预测
+                        try:
+                            # 使用缓存的模型加载方式
+                            predictor = load_predictor()
+                          
+                            # 只使用最关键的模型进行预测，减少内存占用
+                            essential_models = ['CatBoost',
+                                              'ExtraTreesMSE',
+                                              'LightGBM',
+                                              'KNeighborsDist',
+                                              'WeightedEnsemble_L2',
+                                              'XGBoost']
                                         
-                      predict_df = input_df.copy()
-                      predictions_dict = {}
+                            predict_df = input_df.copy()
+                            predictions_dict = {}
                     
-                      for model in essential_models:
-                          try:
-                             predictions = predictor.predict(predict_df, model=model)
-                             predictions_dict[model] = predictions
-                          except Exception as model_error:
-                             st.warning(f"Model {model} prediction failed: {str(model_error)}")
-                             predictions_dict[model] = "Error"
+                            for model in essential_models:
+                                try:
+                                    predictions = predictor.predict(predict_df, model=model)
+                                    predictions_dict[model] = predictions
+                                except Exception as model_error:
+                                    st.warning(f"Model {model} prediction failed: {str(model_error)}")
+                                    predictions_dict[model] = "Error"
   
-                     # 显示预测结果
-                     st.write("Prediction Results (Essential Models):")
-                     st.markdown(
-                        "**Note:** WeightedEnsemble_L2 is a meta-model combining predictions from other models.")
-                     results_df = pd.DataFrame(predictions_dict)
-                     st.dataframe(results_df.iloc[:1,:])
+                            # 显示预测结果
+                            st.write("Prediction Results (Essential Models):")
+                            st.markdown(
+                                "**Note:** WeightedEnsemble_L2 is a meta-model combining predictions from other models.")
+                            results_df = pd.DataFrame(predictions_dict)
+                            st.dataframe(results_df.iloc[:1,:])
                     
-                     # 主动释放内存
-                     del predictor
-                     gc.collect()
+                            # 主动释放内存
+                            del predictor
+                            gc.collect()
  
-                except Exception as e:
-                    st.error(f"Model loading failed: {str(e)}")
+                        except Exception as e:
+                            st.error(f"Model loading failed: {str(e)}")
                     
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
-
