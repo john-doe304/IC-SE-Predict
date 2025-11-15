@@ -151,8 +151,8 @@ def validate_chemical_formula(formula):
     
     return True, "Valid formula"
 
-def get_materials_project_structure_updated(formula, api_key):
-    """使用新的MPRester API获取晶体结构信息"""
+def get_materials_project_structure_simple(formula, api_key):
+    """使用简单直接的方法获取晶体结构信息"""
     if not api_key or not api_key.strip():
         return None, "No API key provided"
     
@@ -163,28 +163,55 @@ def get_materials_project_structure_updated(formula, api_key):
             return None, "Invalid API key format. API key should be 32 alphanumeric characters."
         
         with MPRester(api_key) as mpr:
-            # 使用新的summary.search方法
+            # 方法1: 直接使用get_entries获取结构
             try:
-                # 方法1: 使用summary.search
-                results = mpr.summary.search(formula=formula, fields=[
-                    "material_id", "formula_pretty", "spacegroup", 
-                    "density", "volume", "formation_energy_per_atom", 
-                    "band_gap", "structure"
-                ])
+                entries = mpr.get_entries(formula, inc_structure=True)
                 
-                if not results:
+                if not entries:
                     return None, f"No materials found for formula: {formula}"
                 
-                # 选择第一个结果
-                material_data = results[0]
-                material_id = material_data.material_id
-                pretty_formula = material_data.formula_pretty
-                structure = material_data.structure
+                # 选择第一个材料（通常是最稳定的）
+                material = entries[0]
+                structure = material.structure
+                material_id = material.entry_id
                 
-                # 获取空间群信息
-                spacegroup_data = material_data.spacegroup
-                spacegroup_symbol = spacegroup_data.symbol if spacegroup_data else "N/A"
-                spacegroup_number = spacegroup_data.number if spacegroup_data else "N/A"
+                # 获取材料的基本信息
+                try:
+                    # 使用summary.search获取详细信息
+                    summary_results = mpr.summary.search(material_id=material_id, fields=[
+                        "formula_pretty", "spacegroup", "density", "volume", 
+                        "formation_energy_per_atom", "band_gap"
+                    ])
+                    
+                    if summary_results:
+                        material_data = summary_results[0]
+                        pretty_formula = material_data.formula_pretty
+                        spacegroup_data = material_data.spacegroup
+                        spacegroup_symbol = spacegroup_data.symbol if spacegroup_data else "N/A"
+                        spacegroup_number = spacegroup_data.number if spacegroup_data else "N/A"
+                        density = material_data.density
+                        volume = material_data.volume
+                        formation_energy = material_data.formation_energy_per_atom
+                        band_gap = material_data.band_gap
+                    else:
+                        # 如果summary.search失败，使用基本数据
+                        pretty_formula = formula
+                        spacegroup_symbol = "N/A"
+                        spacegroup_number = "N/A"
+                        density = structure.density
+                        volume = structure.volume
+                        formation_energy = material.energy_per_atom
+                        band_gap = "N/A"
+                        
+                except Exception as detail_error:
+                    # 如果获取详细信息失败，使用基本数据
+                    pretty_formula = formula
+                    spacegroup_symbol = "N/A"
+                    spacegroup_number = "N/A"
+                    density = structure.density
+                    volume = structure.volume
+                    formation_energy = material.energy_per_atom
+                    band_gap = "N/A"
                 
                 return {
                     'structure': structure,
@@ -193,55 +220,41 @@ def get_materials_project_structure_updated(formula, api_key):
                         'symbol': spacegroup_symbol,
                         'number': spacegroup_number
                     },
-                    'density': getattr(material_data, 'density', 'N/A'),
-                    'volume': getattr(material_data, 'volume', 'N/A'),
-                    'formation_energy_per_atom': getattr(material_data, 'formation_energy_per_atom', 'N/A'),
-                    'band_gap': getattr(material_data, 'band_gap', 'N/A'),
+                    'density': density,
+                    'volume': volume,
+                    'formation_energy_per_atom': formation_energy,
+                    'band_gap': band_gap,
                     'formula': formula,
                     'pretty_formula': pretty_formula
                 }, None
                 
-            except Exception as search_error:
-                # 方法2: 备用方法 - 使用get_structure_by_material_id
+            except Exception as entries_error:
+                # 方法2: 使用直接的结构获取
                 try:
-                    # 首先获取材料ID
-                    entries = mpr.get_entries(formula)
-                    if not entries:
+                    # 搜索材料ID
+                    search_results = mpr.summary.search(formula=formula, fields=["material_id"])
+                    if not search_results:
                         return None, f"No materials found for formula: {formula}"
                     
-                    # 选择第一个材料
-                    material = entries[0]
-                    material_id = material.entry_id
-                    structure = mpr.get_structure_by_material_id(material_id.split("-")[1])
+                    material_id = search_results[0].material_id
                     
-                    # 获取详细数据
-                    try:
-                        doc = mpr.get_doc(material_id.split("-")[1])
-                        spacegroup_data = doc.get("spacegroup", {})
-                        spacegroup_symbol = spacegroup_data.get("symbol", "N/A") if isinstance(spacegroup_data, dict) else "N/A"
-                        spacegroup_number = spacegroup_data.get("number", "N/A") if isinstance(spacegroup_data, dict) else "N/A"
-                    except:
-                        spacegroup_symbol = "N/A"
-                        spacegroup_number = "N/A"
-                        doc = {}
+                    # 直接获取结构
+                    structure = mpr.get_structure_by_material_id(material_id)
                     
                     return {
                         'structure': structure,
                         'material_id': material_id,
-                        'spacegroup': {
-                            'symbol': spacegroup_symbol,
-                            'number': spacegroup_number
-                        },
-                        'density': doc.get('density', structure.density if structure else 'N/A'),
-                        'volume': doc.get('volume', structure.volume if structure else 'N/A'),
-                        'formation_energy_per_atom': material.energy_per_atom,
-                        'band_gap': doc.get('band_gap', 'N/A'),
+                        'spacegroup': {'symbol': 'N/A', 'number': 'N/A'},
+                        'density': structure.density,
+                        'volume': structure.volume,
+                        'formation_energy_per_atom': 'N/A',
+                        'band_gap': 'N/A',
                         'formula': formula,
                         'pretty_formula': formula
                     }, None
                     
-                except Exception as fallback_error:
-                    return None, f"Both search methods failed: {str(fallback_error)}"
+                except Exception as direct_error:
+                    return None, f"All methods failed: {str(direct_error)}"
             
     except Exception as e:
         return None, f"Error accessing Materials Project: {str(e)}"
@@ -514,10 +527,10 @@ if submit_button:
                     # 首先尝试从Materials Project获取晶体结构
                     if mp_api_key and mp_api_key.strip():
                         with st.spinner("Fetching crystal structure from Materials Project..."):
-                            # 修正化学公式 - 注意这里你输入的是 Li7La3272O12，应该是 Li7La3Zr2O12
+                            # 修正化学公式
                             corrected_formula = formula_input.replace('.', '').replace('L1', 'Li').replace('l', 'I').replace('3272', '3Zr2')
                             
-                            mp_data, mp_error = get_materials_project_structure_updated(corrected_formula, mp_api_key)
+                            mp_data, mp_error = get_materials_project_structure_simple(corrected_formula, mp_api_key)
                             
                             if mp_data and mp_error is None:
                                 st.success("✅ Crystal structure retrieved from Materials Project")
