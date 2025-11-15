@@ -151,8 +151,8 @@ def validate_chemical_formula(formula):
     
     return True, "Valid formula"
 
-def get_materials_project_structure_simple(formula, api_key):
-    """使用简单直接的方法获取晶体结构信息"""
+def get_materials_project_structure_with_visualization(formula, api_key):
+    """获取Materials Project的晶体结构和可视化数据"""
     if not api_key or not api_key.strip():
         return None, "No API key provided"
     
@@ -163,48 +163,41 @@ def get_materials_project_structure_simple(formula, api_key):
             return None, "Invalid API key format. API key should be 32 alphanumeric characters."
         
         with MPRester(api_key) as mpr:
-            # 方法1: 直接使用get_entries获取结构
+            # 搜索材料
+            entries = mpr.get_entries(formula, inc_structure=True)
+            
+            if not entries:
+                return None, f"No materials found for formula: {formula}"
+            
+            # 选择第一个材料（通常是最稳定的）
+            material = entries[0]
+            structure = material.structure
+            material_id = material.entry_id
+            
+            # 获取材料的详细信息
             try:
-                entries = mpr.get_entries(formula, inc_structure=True)
+                summary_results = mpr.summary.search(material_id=material_id, fields=[
+                    "formula_pretty", "spacegroup", "density", "volume", 
+                    "formation_energy_per_atom", "band_gap", "material_id",
+                    "cif", "symmetry"
+                ])
                 
-                if not entries:
-                    return None, f"No materials found for formula: {formula}"
-                
-                # 选择第一个材料（通常是最稳定的）
-                material = entries[0]
-                structure = material.structure
-                material_id = material.entry_id
-                
-                # 获取材料的基本信息
-                try:
-                    # 使用summary.search获取详细信息
-                    summary_results = mpr.summary.search(material_id=material_id, fields=[
-                        "formula_pretty", "spacegroup", "density", "volume", 
-                        "formation_energy_per_atom", "band_gap"
-                    ])
+                if summary_results:
+                    material_data = summary_results[0]
+                    pretty_formula = material_data.formula_pretty
+                    spacegroup_data = material_data.spacegroup
+                    spacegroup_symbol = spacegroup_data.symbol if spacegroup_data else "N/A"
+                    spacegroup_number = spacegroup_data.number if spacegroup_data else "N/A"
+                    density = material_data.density
+                    volume = material_data.volume
+                    formation_energy = material_data.formation_energy_per_atom
+                    band_gap = material_data.band_gap
                     
-                    if summary_results:
-                        material_data = summary_results[0]
-                        pretty_formula = material_data.formula_pretty
-                        spacegroup_data = material_data.spacegroup
-                        spacegroup_symbol = spacegroup_data.symbol if spacegroup_data else "N/A"
-                        spacegroup_number = spacegroup_data.number if spacegroup_data else "N/A"
-                        density = material_data.density
-                        volume = material_data.volume
-                        formation_energy = material_data.formation_energy_per_atom
-                        band_gap = material_data.band_gap
-                    else:
-                        # 如果summary.search失败，使用基本数据
-                        pretty_formula = formula
-                        spacegroup_symbol = "N/A"
-                        spacegroup_number = "N/A"
-                        density = structure.density
-                        volume = structure.volume
-                        formation_energy = material.energy_per_atom
-                        band_gap = "N/A"
-                        
-                except Exception as detail_error:
-                    # 如果获取详细信息失败，使用基本数据
+                    # 获取CIF文件用于可视化
+                    cif_data = material_data.cif if hasattr(material_data, 'cif') else None
+                    
+                else:
+                    # 如果summary.search失败，使用基本数据
                     pretty_formula = formula
                     spacegroup_symbol = "N/A"
                     spacegroup_number = "N/A"
@@ -212,55 +205,119 @@ def get_materials_project_structure_simple(formula, api_key):
                     volume = structure.volume
                     formation_energy = material.energy_per_atom
                     band_gap = "N/A"
-                
-                return {
-                    'structure': structure,
-                    'material_id': material_id,
-                    'spacegroup': {
-                        'symbol': spacegroup_symbol,
-                        'number': spacegroup_number
-                    },
-                    'density': density,
-                    'volume': volume,
-                    'formation_energy_per_atom': formation_energy,
-                    'band_gap': band_gap,
-                    'formula': formula,
-                    'pretty_formula': pretty_formula
-                }, None
-                
-            except Exception as entries_error:
-                # 方法2: 使用直接的结构获取
-                try:
-                    # 搜索材料ID
-                    search_results = mpr.summary.search(formula=formula, fields=["material_id"])
-                    if not search_results:
-                        return None, f"No materials found for formula: {formula}"
+                    cif_data = None
                     
-                    material_id = search_results[0].material_id
-                    
-                    # 直接获取结构
-                    structure = mpr.get_structure_by_material_id(material_id)
-                    
-                    return {
-                        'structure': structure,
-                        'material_id': material_id,
-                        'spacegroup': {'symbol': 'N/A', 'number': 'N/A'},
-                        'density': structure.density,
-                        'volume': structure.volume,
-                        'formation_energy_per_atom': 'N/A',
-                        'band_gap': 'N/A',
-                        'formula': formula,
-                        'pretty_formula': formula
-                    }, None
-                    
-                except Exception as direct_error:
-                    return None, f"All methods failed: {str(direct_error)}"
+            except Exception as detail_error:
+                # 如果获取详细信息失败，使用基本数据
+                pretty_formula = formula
+                spacegroup_symbol = "N/A"
+                spacegroup_number = "N/A"
+                density = structure.density
+                volume = structure.volume
+                formation_energy = material.energy_per_atom
+                band_gap = "N/A"
+                cif_data = None
+            
+            return {
+                'structure': structure,
+                'material_id': material_id,
+                'spacegroup': {
+                    'symbol': spacegroup_symbol,
+                    'number': spacegroup_number
+                },
+                'density': density,
+                'volume': volume,
+                'formation_energy_per_atom': formation_energy,
+                'band_gap': band_gap,
+                'formula': formula,
+                'pretty_formula': pretty_formula,
+                'cif_data': cif_data
+            }, None
             
     except Exception as e:
         return None, f"Error accessing Materials Project: {str(e)}"
 
+def get_materials_project_visualization_url(material_id, api_key):
+    """获取Materials Project官方可视化URL"""
+    try:
+        # Materials Project的官方可视化URL格式
+        base_url = "https://next-gen.materialsproject.org"
+        visualization_url = f"{base_url}/materials/{material_id}"
+        
+        return visualization_url
+    except Exception as e:
+        return None
+
+def display_materials_project_visualization(material_id, api_key):
+    """显示Materials Project的官方晶体结构可视化"""
+    try:
+        # 获取可视化URL
+        viz_url = get_materials_project_visualization_url(material_id, api_key)
+        
+        if viz_url:
+            st.markdown(f"""
+            <div style="text-align: center; margin: 20px 0;">
+                <a href="{viz_url}" target="_blank" style="
+                    display: inline-block;
+                    padding: 10px 20px;
+                    background-color: #4CAF50;
+                    color: white;
+                    text-decoration: none;
+                    border-radius: 5px;
+                    font-weight: bold;
+                ">
+                🎯 View Interactive Crystal Structure on Materials Project
+                </a>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # 显示嵌入的iframe（可选）
+            st.markdown(f"""
+            <div style="text-align: center; margin: 20px 0;">
+                <small>Click the button above to view the interactive crystal structure on Materials Project website</small>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            return True
+        else:
+            return False
+            
+    except Exception as e:
+        st.error(f"Error displaying Materials Project visualization: {str(e)}")
+        return False
+
+def create_enhanced_structure_plot(structure, formula, material_id):
+    """创建增强的晶体结构3D图 - 使用pymatgen的VESTA风格可视化"""
+    try:
+        from pymatgen.vis.structure_vtk import StructureVis
+        import tempfile
+        import os
+        
+        # 创建临时文件保存结构图像
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
+            temp_path = tmp_file.name
+        
+        # 使用pymatgen的可视化功能
+        vis = StructureVis(show_polyhedron=False)
+        vis.set_structure(structure)
+        vis.zoom_to_fit()
+        
+        # 保存图像（这里简化处理，实际可能需要更复杂的渲染）
+        # 由于streamlit中直接使用pymatgen可视化比较复杂，我们回退到plotly方法
+        
+        # 清理临时文件
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+            
+        # 使用改进的plotly可视化
+        return create_simple_structure_plot(structure, formula, material_id)
+        
+    except Exception as e:
+        st.warning(f"Enhanced visualization failed, using basic method: {str(e)}")
+        return create_simple_structure_plot(structure, formula, material_id)
+
 def create_simple_structure_plot(structure, formula, material_id):
-    """创建简化的晶体结构3D图 - 修复颜色问题"""
+    """创建简化的晶体结构3D图"""
     try:
         # 获取晶格参数
         lattice = structure.lattice
@@ -270,22 +327,24 @@ def create_simple_structure_plot(structure, formula, material_id):
         x, y, z = [], [], []
         colors, sizes, symbols, hover_texts = [], [], [], []
         
-        # 改进的原子颜色映射
+        # 改进的原子颜色映射（VESTA风格）
         color_map = {
             'Li': '#CC80FF', 'La': '#70D4FF', 'Zr': '#4EACCE', 'O': '#FF0D0D',
             'P': '#FF8000', 'S': '#FFFF30', 'Cl': '#1FF01F', 'Ge': '#668F8F',
             'Y': '#94FFFF', 'F': '#90E050', 'Br': '#A62929', 'I': '#940094',
             'Na': '#AB5CF2', 'K': '#8F40D4', 'Mg': '#8AFF00', 'Ca': '#3DFF00',
-            'Al': '#BFA6A6', 'Si': '#F0C8A0', 'Ti': '#BFC2C7', 'Fe': '#E06633'
+            'Al': '#BFA6A6', 'Si': '#F0C8A0', 'Ti': '#BFC2C7', 'Fe': '#E06633',
+            'H': '#FFFFFF', 'C': '#909090', 'N': '#3050F8', 'B': '#F0B0B0'
         }
         
         # 原子大小映射
         size_map = {
-            'Li': 10, 'La': 18, 'Zr': 14, 'O': 12,
-            'P': 13, 'S': 12, 'Cl': 12, 'Ge': 14,
-            'Y': 14, 'F': 10, 'Br': 13, 'I': 15,
-            'Na': 12, 'K': 14, 'Mg': 13, 'Ca': 14,
-            'Al': 13, 'Si': 13, 'Ti': 14, 'Fe': 14
+            'Li': 8, 'La': 15, 'Zr': 12, 'O': 10,
+            'P': 11, 'S': 10, 'Cl': 10, 'Ge': 12,
+            'Y': 12, 'F': 8, 'Br': 11, 'I': 13,
+            'Na': 10, 'K': 12, 'Mg': 11, 'Ca': 12,
+            'Al': 11, 'Si': 11, 'Ti': 12, 'Fe': 12,
+            'H': 6, 'C': 10, 'N': 9, 'B': 9
         }
         
         for i, site in enumerate(sites):
@@ -294,7 +353,7 @@ def create_simple_structure_plot(structure, formula, material_id):
             z.append(site.coords[2])
             element = site.species_string
             colors.append(color_map.get(element, '#CCCCCC'))
-            sizes.append(size_map.get(element, 12))
+            sizes.append(size_map.get(element, 10))
             symbols.append(element)
             hover_texts.append(f"{element} atom<br>Position: ({site.coords[0]:.2f}, {site.coords[1]:.2f}, {site.coords[2]:.2f})")
         
@@ -310,14 +369,13 @@ def create_simple_structure_plot(structure, formula, material_id):
             ),
             text=symbols,
             textposition="middle center",
-            textfont=dict(size=12, color='black', family="Arial"),
+            textfont=dict(size=10, color='black', family="Arial", weight="bold"),
             hoverinfo='text',
             hovertext=hover_texts,
             name='Atoms'
         )
         
-        # 创建晶格线 - 修复颜色问题
-        # 分别创建三个晶格向量的轨迹，避免None值问题
+        # 创建晶格线
         lattice_traces = []
         
         # 晶格向量
@@ -332,7 +390,7 @@ def create_simple_structure_plot(structure, formula, material_id):
             y=[origin[1], a_vec[1]],
             z=[origin[2], a_vec[2]],
             mode='lines',
-            line=dict(color='red', width=6),
+            line=dict(color='red', width=8),
             name='a-axis',
             hoverinfo='none',
             showlegend=False
@@ -344,7 +402,7 @@ def create_simple_structure_plot(structure, formula, material_id):
             y=[origin[1], b_vec[1]],
             z=[origin[2], b_vec[2]],
             mode='lines',
-            line=dict(color='green', width=6),
+            line=dict(color='green', width=8),
             name='b-axis',
             hoverinfo='none',
             showlegend=False
@@ -356,13 +414,13 @@ def create_simple_structure_plot(structure, formula, material_id):
             y=[origin[1], c_vec[1]],
             z=[origin[2], c_vec[2]],
             mode='lines',
-            line=dict(color='blue', width=6),
+            line=dict(color='blue', width=8),
             name='c-axis',
             hoverinfo='none',
             showlegend=False
         ))
         
-        # 创建图形 - 将所有轨迹放在一起
+        # 创建图形
         all_traces = [atom_trace] + lattice_traces
         
         fig = go.Figure(data=all_traces)
@@ -417,69 +475,6 @@ def create_simple_structure_plot(structure, formula, material_id):
         
     except Exception as e:
         st.error(f"Error creating structure plot: {str(e)}")
-        import traceback
-        st.error(f"Detailed error: {traceback.format_exc()}")
-        return None
-
-def create_basic_structure_plot(structure, formula, material_id):
-    """创建最基本的晶体结构图 - 备用方法"""
-    try:
-        # 获取晶格参数
-        lattice = structure.lattice
-        sites = structure.sites
-        
-        # 创建原子位置数据
-        x, y, z = [], [], []
-        colors, sizes, symbols = [], [], []
-        
-        # 简单的原子颜色映射
-        color_map = {
-            'Li': 'purple', 'La': 'green', 'Zr': 'blue', 'O': 'red',
-            'P': 'orange', 'S': 'yellow', 'Cl': 'lime', 'Ge': 'gray'
-        }
-        
-        for site in sites:
-            x.append(site.coords[0])
-            y.append(site.coords[1])
-            z.append(site.coords[2])
-            element = site.species_string
-            colors.append(color_map.get(element, 'black'))
-            sizes.append(15)
-            symbols.append(element)
-        
-        # 创建原子轨迹
-        atom_trace = go.Scatter3d(
-            x=x, y=y, z=z,
-            mode='markers+text',
-            marker=dict(
-                size=sizes,
-                color=colors,
-                opacity=0.8
-            ),
-            text=symbols,
-            textposition="middle center",
-            name='Atoms'
-        )
-        
-        # 创建图形
-        fig = go.Figure(data=[atom_trace])
-        
-        # 简单布局
-        fig.update_layout(
-            title=f"Crystal Structure: {formula}",
-            scene=dict(
-                xaxis_title='X (Å)',
-                yaxis_title='Y (Å)',
-                zaxis_title='Z (Å)'
-            ),
-            width=600,
-            height=500
-        )
-        
-        return fig
-        
-    except Exception as e:
-        st.error(f"Error creating basic structure plot: {str(e)}")
         return None
 
 def analyze_structure_features(structure):
@@ -525,8 +520,6 @@ def analyze_structure_features(structure):
             'symmetry': 'unknown'
         }
 
-# 材料特征计算函数和其他函数保持不变...
-
 # 如果点击提交按钮
 if submit_button:
     if not formula_input:
@@ -547,7 +540,7 @@ if submit_button:
                             # 修正化学公式
                             corrected_formula = formula_input.replace('.', '').replace('L1', 'Li').replace('l', 'I').replace('3272', '3Zr2')
                             
-                            mp_data, mp_error = get_materials_project_structure_simple(corrected_formula, mp_api_key)
+                            mp_data, mp_error = get_materials_project_structure_with_visualization(corrected_formula, mp_api_key)
                             
                             if mp_data and mp_error is None:
                                 st.success("✅ Crystal structure retrieved from Materials Project")
@@ -586,39 +579,38 @@ if submit_button:
                                 with col4:
                                     st.write(f"**Symmetry:** {structure_info['symmetry'].capitalize()}")
                                 
-                                # 创建并显示3D结构图
-                                st.subheader("🎯 3D Crystal Structure Visualization")
+                                # 显示Materials Project官方可视化链接
+                                st.subheader("🎯 Interactive Crystal Structure")
                                 
-                                # 首先尝试使用简单方法
-                                fig = create_simple_structure_plot(
+                                # 显示官方可视化链接
+                                display_materials_project_visualization(mp_data['material_id'], mp_api_key)
+                                
+                                # 同时显示本地的3D可视化
+                                st.subheader("🔍 3D Structure Preview")
+                                
+                                # 创建并显示3D结构图
+                                fig = create_enhanced_structure_plot(
                                     mp_data['structure'], 
                                     mp_data['pretty_formula'], 
                                     mp_data['material_id']
                                 )
-                                
-                                if fig is None:
-                                    # 如果简单方法失败，使用最基本的方法
-                                    st.warning("Using basic visualization method...")
-                                    fig = create_basic_structure_plot(
-                                        mp_data['structure'], 
-                                        mp_data['pretty_formula'], 
-                                        mp_data['material_id']
-                                    )
                                 
                                 if fig:
                                     st.plotly_chart(fig, use_container_width=True)
                                     
                                     # 添加交互说明
                                     st.info("""
-                                    **💡 Interactive Controls:**
+                                    **💡 Interactive Controls for 3D Preview:**
                                     - **Rotate:** Click and drag to rotate the structure
                                     - **Zoom:** Use mouse wheel to zoom in/out
                                     - **Pan:** Hold Shift and drag to pan
                                     - **Reset:** Double-click to reset view
                                     - **Hover:** Hover over atoms to see details
+                                    
+                                    **🎯 For full interactive features:** Click the button above to view on Materials Project
                                     """)
                                 else:
-                                    st.error("Failed to create structure visualization")
+                                    st.warning("3D preview not available, please use the Materials Project link above")
                                 
                             else:
                                 st.warning(f"Could not retrieve crystal structure: {mp_error}")
