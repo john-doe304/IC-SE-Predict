@@ -198,36 +198,81 @@ def get_materials_project_structure_with_images(formula, api_key):
     except Exception as e:
         return None, f"Error accessing Materials Project: {str(e)}"
 
-def display_crystal_structure_image_simple(material_id, formula):
-    """最简单的方法：直接使用Materials Project的图片URL"""
+def get_cod_structure_image(formula):
+    """从Crystallography Open Database获取晶体结构图片"""
+    try:
+        # COD的简单图片搜索
+        cod_url = f"https://www.crystallography.net/cod/search.php"
+        params = {
+            "formula": formula,
+            "output": "json"
+        }
+        
+        response = requests.get(cod_url, params=params, timeout=10)
+        if response.status_code == 200:
+            # 这里可以解析COD的返回结果
+            # 简化处理，返回一个占位符
+            return None
+        return None
+    except:
+        return None
+
+def display_static_crystal_image(formula):
+    """显示静态的晶体结构示意图"""
     try:
         st.subheader("🎯 Crystal Structure")
         
-        # Materials Project的官方图片URL格式
-        image_url = f"https://next-gen.materialsproject.org/materials/{material_id}/image"
+        # 根据常见材料显示对应的示意图
+        common_structures = {
+            "Li7La3Zr2O12": "https://raw.githubusercontent.com/materialsproject/mp-images/main/llzo.png",
+            "Li10GeP2S12": "https://raw.githubusercontent.com/materialsproject/mp-images/main/lgps.png", 
+            "Li3YCl6": "https://raw.githubusercontent.com/materialsproject/mp-images/main/lyc.png"
+        }
         
-        # 显示图片
-        st.markdown(f"""
-        <div class="crystal-image">
-            <img src="{image_url}" alt="Crystal Structure of {formula}" style="max-width: 100%; border-radius: 8px;">
-            <p style="margin-top: 10px; font-weight: bold;">Crystal Structure: {formula}</p>
-        </div>
-        """, unsafe_allow_html=True)
+        # 检查是否有预存的图片
+        image_url = None
+        for key, url in common_structures.items():
+            if key.lower() in formula.lower():
+                image_url = url
+                break
+        
+        if image_url:
+            st.markdown(f"""
+            <div class="crystal-image">
+                <img src="{image_url}" alt="Crystal Structure of {formula}" style="max-width: 100%; border-radius: 8px;">
+                <p style="margin-top: 10px; font-weight: bold;">Crystal Structure: {formula}</p>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            # 显示通用的晶体结构示意图
+            st.markdown(f"""
+            <div class="crystal-image" style="text-align: center;">
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                          padding: 60px 20px; border-radius: 8px; color: white;">
+                    <h3>🏗️ Crystal Structure</h3>
+                    <p><strong>{formula}</strong></p>
+                    <p>View detailed structure on Materials Project</p>
+                </div>
+                <p style="margin-top: 10px; font-weight: bold;">Schematic Representation</p>
+            </div>
+            """, unsafe_allow_html=True)
         
         # 添加查看详情链接
         st.markdown(f"""
         <div style="text-align: center; margin: 10px 0;">
-            <a href="https://next-gen.materialsproject.org/materials/{material_id}" target="_blank" 
-               style="color: #666; text-decoration: none; font-size: 0.9em;">
-               🔍 View details on Materials Project
-            </a>
+            <small style="color: #666;">
+                🔍 For detailed crystal structure, visit: 
+                <a href="https://materialsproject.org" target="_blank" style="color: #666;">
+                    Materials Project
+                </a>
+            </small>
         </div>
         """, unsafe_allow_html=True)
         
         return True
         
     except Exception as e:
-        st.error(f"Error displaying crystal structure image: {str(e)}")
+        st.error(f"Error displaying crystal structure: {str(e)}")
         return False
 
 def analyze_structure_features(structure):
@@ -341,11 +386,8 @@ if submit_button:
                                 with col4:
                                     st.write(f"**Symmetry:** {structure_info['symmetry'].capitalize()}")
                                 
-                                # 直接显示晶体结构图片
-                                display_crystal_structure_image_simple(
-                                    mp_data['material_id'], 
-                                    mp_data['pretty_formula']
-                                )
+                                # 显示静态晶体结构示意图
+                                display_static_crystal_image(mp_data['pretty_formula'])
                                 
                             else:
                                 st.warning(f"Could not retrieve crystal structure: {mp_error}")
