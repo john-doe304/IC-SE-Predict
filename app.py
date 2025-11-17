@@ -11,8 +11,8 @@ import tempfile
 import base64
 from io import BytesIO
 from autogluon.tabular import FeatureMetadata
-import gc  # 添加垃圾回收模块
-import re  # 添加正则表达式模块用于处理SVG
+import gc
+import re
 from tqdm import tqdm 
 import numpy as np
 from pymatgen.core import Composition, Structure
@@ -198,202 +198,36 @@ def get_materials_project_structure_with_images(formula, api_key):
     except Exception as e:
         return None, f"Error accessing Materials Project: {str(e)}"
 
-def get_crystal_structure_image_direct(material_id, api_key):
-    """直接获取晶体结构图片 - 使用正确的API端点"""
+def display_crystal_structure_image_simple(material_id, formula):
+    """最简单的方法：直接使用Materials Project的图片URL"""
     try:
-        # Materials Project的官方API端点
-        base_url = "https://next-gen.materialsproject.org"
+        st.subheader("🎯 Crystal Structure")
         
-        # 方法1: 使用materials/{id}/image端点
-        image_url = f"{base_url}/materials/{material_id}/image"
+        # Materials Project的官方图片URL格式
+        image_url = f"https://next-gen.materialsproject.org/materials/{material_id}/image"
         
-        headers = {
-            "X-API-KEY": api_key,
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "image/png,image/jpeg"
-        }
+        # 显示图片
+        st.markdown(f"""
+        <div class="crystal-image">
+            <img src="{image_url}" alt="Crystal Structure of {formula}" style="max-width: 100%; border-radius: 8px;">
+            <p style="margin-top: 10px; font-weight: bold;">Crystal Structure: {formula}</p>
+        </div>
+        """, unsafe_allow_html=True)
         
-        params = {
-            "formula": "",
-            "hideControls": "true",
-            "width": "600",
-            "height": "400"
-        }
+        # 添加查看详情链接
+        st.markdown(f"""
+        <div style="text-align: center; margin: 10px 0;">
+            <a href="https://next-gen.materialsproject.org/materials/{material_id}" target="_blank" 
+               style="color: #666; text-decoration: none; font-size: 0.9em;">
+               🔍 View details on Materials Project
+            </a>
+        </div>
+        """, unsafe_allow_html=True)
         
-        response = requests.get(image_url, headers=headers, params=params, timeout=30)
-        
-        if response.status_code == 200 and response.content:
-            return Image.open(BytesIO(response.content))
-        else:
-            # 方法2: 尝试使用不同的参数
-            params2 = {
-                "style": "ball_and_stick",
-                "size": "large"
-            }
-            response2 = requests.get(image_url, headers=headers, params=params2, timeout=30)
-            if response2.status_code == 200 and response2.content:
-                return Image.open(BytesIO(response2.content))
-            
-        return None
-        
-    except Exception as e:
-        return None
-
-def create_crystal_structure_plotly(structure, formula):
-    """使用plotly创建晶体结构可视化"""
-    try:
-        # 获取晶格参数
-        lattice = structure.lattice
-        sites = structure.sites
-        
-        # 创建原子位置数据
-        x, y, z = [], [], []
-        colors, sizes, symbols, hover_texts = [], [], [], []
-        
-        # 原子颜色映射
-        color_map = {
-            'Li': '#CC80FF', 'La': '#70D4FF', 'Zr': '#4EACCE', 'O': '#FF0D0D',
-            'P': '#FF8000', 'S': '#FFFF30', 'Cl': '#1FF01F', 'Ge': '#668F8F',
-            'Y': '#94FFFF', 'F': '#90E050', 'Br': '#A62929', 'I': '#940094',
-            'Na': '#AB5CF2', 'K': '#8F40D4', 'Mg': '#8AFF00', 'Ca': '#3DFF00',
-            'Al': '#BFA6A6', 'Si': '#F0C8A0', 'Ti': '#BFC2C7', 'Fe': '#E06633'
-        }
-        
-        # 原子大小映射
-        size_map = {
-            'Li': 10, 'La': 20, 'Zr': 15, 'O': 12,
-            'P': 13, 'S': 12, 'Cl': 12, 'Ge': 14,
-            'Y': 14, 'F': 10, 'Br': 13, 'I': 15,
-            'Na': 12, 'K': 14, 'Mg': 13, 'Ca': 14,
-            'Al': 13, 'Si': 13, 'Ti': 14, 'Fe': 14
-        }
-        
-        for site in sites:
-            x.append(site.coords[0])
-            y.append(site.coords[1])
-            z.append(site.coords[2])
-            element = site.species_string
-            colors.append(color_map.get(element, '#CCCCCC'))
-            sizes.append(size_map.get(element, 12))
-            symbols.append(element)
-            hover_texts.append(f"{element} ({site.coords[0]:.2f}, {site.coords[1]:.2f}, {site.coords[2]:.2f})")
-        
-        # 创建原子轨迹
-        atom_trace = go.Scatter3d(
-            x=x, y=y, z=z,
-            mode='markers',
-            marker=dict(
-                size=sizes,
-                color=colors,
-                opacity=0.9,
-                line=dict(width=2, color='darkgray')
-            ),
-            text=hover_texts,
-            hoverinfo='text',
-            name='Atoms'
-        )
-        
-        # 创建晶格线
-        lattice_traces = []
-        origin = [0, 0, 0]
-        a_vec = lattice.matrix[0]
-        b_vec = lattice.matrix[1]
-        c_vec = lattice.matrix[2]
-        
-        # 创建晶胞边界
-        vertices = [
-            origin,
-            a_vec, b_vec, c_vec,
-            a_vec + b_vec, a_vec + c_vec, b_vec + c_vec,
-            a_vec + b_vec + c_vec
-        ]
-        
-        edges = [
-            (0,1), (0,2), (0,3),
-            (1,4), (1,5), (2,4), (2,6),
-            (3,5), (3,6), (4,7), (5,7), (6,7)
-        ]
-        
-        for start, end in edges:
-            lattice_traces.append(go.Scatter3d(
-                x=[vertices[start][0], vertices[end][0]],
-                y=[vertices[start][1], vertices[end][1]],
-                z=[vertices[start][2], vertices[end][2]],
-                mode='lines',
-                line=dict(color='black', width=5),
-                hoverinfo='none',
-                showlegend=False
-            ))
-        
-        # 创建图形
-        fig = go.Figure(data=[atom_trace] + lattice_traces)
-        
-        fig.update_layout(
-            title=f"Crystal Structure: {formula}",
-            scene=dict(
-                xaxis_title='X (Å)',
-                yaxis_title='Y (Å)',
-                zaxis_title='Z (Å)',
-                aspectmode='data',
-                camera=dict(eye=dict(x=1.5, y=1.5, z=1.5)),
-                bgcolor='white'
-            ),
-            width=600,
-            height=500,
-            margin=dict(l=20, r=20, b=20, t=40)
-        )
-        
-        return fig
-        
-    except Exception as e:
-        st.error(f"Error creating structure visualization: {str(e)}")
-        return None
-
-def display_crystal_structure_direct(material_id, api_key, formula, structure):
-    """直接显示晶体结构"""
-    try:
-        st.subheader("🎯 Crystal Structure Visualization")
-        
-        # 尝试获取官方图片
-        with st.spinner("Loading crystal structure image..."):
-            crystal_img = get_crystal_structure_image_direct(material_id, api_key)
-            
-            if crystal_img:
-                st.markdown(f'<div class="crystal-image">', unsafe_allow_html=True)
-                st.image(crystal_img, caption=f"Crystal Structure: {formula}", use_column_width=True)
-                st.markdown('</div>', unsafe_allow_html=True)
-                st.success("✅ Crystal structure image loaded successfully")
-            else:
-                # 如果官方图片获取失败，使用plotly创建可视化
-                st.warning("Using interactive 3D visualization instead...")
-                fig = create_crystal_structure_plotly(structure, formula)
-                if fig:
-                    st.plotly_chart(fig, use_container_width=True)
-                    st.info("💡 **Interactive Controls:** Drag to rotate, scroll to zoom, shift+drag to pan")
-                else:
-                    # 最后备选方案：显示链接
-                    st.info("💡 Click the button below to view the crystal structure on Materials Project website:")
-                    viz_url = f"https://next-gen.materialsproject.org/materials/{material_id}"
-                    st.markdown(f"""
-                    <div style="text-align: center; margin: 20px 0;">
-                        <a href="{viz_url}" target="_blank" style="
-                            display: inline-block;
-                            padding: 10px 20px;
-                            background-color: #4CAF50;
-                            color: white;
-                            text-decoration: none;
-                            border-radius: 5px;
-                            font-weight: bold;
-                        ">
-                        🎯 View Crystal Structure on Materials Project
-                        </a>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
         return True
         
     except Exception as e:
-        st.error(f"Error displaying crystal structure: {str(e)}")
+        st.error(f"Error displaying crystal structure image: {str(e)}")
         return False
 
 def analyze_structure_features(structure):
@@ -507,12 +341,10 @@ if submit_button:
                                 with col4:
                                     st.write(f"**Symmetry:** {structure_info['symmetry'].capitalize()}")
                                 
-                                # 直接显示晶体结构图片或可视化
-                                display_crystal_structure_direct(
+                                # 直接显示晶体结构图片
+                                display_crystal_structure_image_simple(
                                     mp_data['material_id'], 
-                                    mp_api_key, 
-                                    mp_data['pretty_formula'],
-                                    mp_data['structure']
+                                    mp_data['pretty_formula']
                                 )
                                 
                             else:
