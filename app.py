@@ -404,22 +404,28 @@ if submit_button:
                                          'WeightedEnsemble_L2',
                                          'XGBoost']
                                         
-                       predict_df = input_df.copy()
-                       predictions_dict = {}
-                       for model, prediction in example_predictions.items():
+                       results_data = []
+                            for model, prediction in  essential_models.items():
                                 results_data.append({
                                     'Model': model,
-                                    'Log(Predicted Ionic Conductivity (S/cm))': prediction
+                                    'Predicted Ionic Conductivity (S/cm)': prediction
                                 })
                             
-                       results_df = pd.DataFrame(results_data)
-                       st.dataframe(results_df)
+                            results_df = pd.DataFrame(results_data)
+                            st.dataframe(results_df)
                             
-                       st.info("💡 These are example predictions. For accurate results, ensure all dependencies are properly installed.")
                             
-                       
-                   except Exception as e:
-                       st.error(f"An error occurred: {str(e)}")
+                            
+                        else:
+                            st.error("Model not available in current environment")
+                            
+                    except Exception as e:
+                        st.error(f"Prediction failed: {str(e)}")
+                        
+                    
+                except Exception as e:
+                    st.error(f"An error occurred: {str(e)}")
+
 
 
 
