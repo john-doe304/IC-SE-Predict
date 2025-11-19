@@ -414,8 +414,7 @@ if submit_button:
                        results_df = pd.DataFrame(results_data)
                        st.dataframe(results_df)     
                
-                       else:
-                           st.error("Model not available in current environment")
+                      
                             
                    except Exception as e:
                        st.error(f"Prediction failed: {str(e)}")
@@ -423,6 +422,7 @@ if submit_button:
                     
                except Exception as e:
                    st.error(f"An error occurred: {str(e)}")
+
 
 
 
