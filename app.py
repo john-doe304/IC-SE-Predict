@@ -417,15 +417,10 @@ if submit_button:
                             
                        st.info("💡 These are example predictions. For accurate results, ensure all dependencies are properly installed.")
                             
-                       else:
-                           st.error("Model not available in current environment")
-                            
-                           except Exception as e:
-                           st.error(f"Prediction failed: {str(e)}")
-                           st.info("💡 This is likely due to missing dependencies. Check the requirements.txt file.")
-                    
+                       
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
+
 
 
 
