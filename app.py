@@ -376,7 +376,7 @@ if submit_button:
                     
                     # 计算材料特征
                     with st.spinner("Calculating material features..."):
-                        features = calculate_material_features_simple(formula_input)
+                        features = calculate_material_features(formula_input)
                     
                     st.write(f"✅ Features prepared for prediction")
                     
@@ -399,18 +399,25 @@ if submit_button:
                         if predictor is not None:
                             st.subheader("Prediction Results")
                             
-                            # 简化预测 - 使用示例值
-                            example_predictions = {
-                                'CatBoost': 0.0052,
-                                'LightGBM': 0.0048,
-                                'WeightedEnsemble_L2': 0.0050
-                            }
-                            
-                            results_data = []
+                    # 加载模型并预测
+                    try:
+                       # 使用缓存的模型加载方式
+                       predictor = load_predictor()
+                    
+                       # 只使用最关键的模型进行预测，减少内存占用
+                       essential_models = ['CatBoost',
+                                          'ExtraTreesMSE',
+                                         'LightGBM',
+                                         'KNeighborsDist',
+                                         'WeightedEnsemble_L2',
+                                         'XGBoost']
+                                        
+                       predict_df = input_df.copy()
+                       predictions_dict = {}
                             for model, prediction in example_predictions.items():
                                 results_data.append({
                                     'Model': model,
-                                    'Predicted Ionic Conductivity (S/cm)': prediction
+                                    'Log(Predicted Ionic Conductivity (S/cm))': prediction
                                 })
                             
                             results_df = pd.DataFrame(results_data)
@@ -445,4 +452,5 @@ with st.sidebar:
     st.markdown("### 🔧 Status")
     st.warning("Running in simplified mode")
     st.info("3D visualization: External links only")
+
 
