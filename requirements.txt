@@ -1,25 +1,15 @@
-# 基础核心包
+# 使用完全兼容的版本组合
 streamlit==1.28.2
 numpy==1.24.3
 pandas==1.5.4
 pillow==10.0.1
-
-# 机器学习
 autogluon==0.8.2
-
-# 化学信息学
 rdkit-pypi==2023.9.5
-
-# 材料科学
 pymatgen==2023.9.10
 matminer==0.9.0
-
-# 描述符计算
 mordred==1.2.0
-
-# 可视化
 plotly==5.17.0
-
-# 3D可视化
 py3Dmol==0.8.0
 stmol==0.0.10
+scipy==1.10.1
+scikit-learn==1.2.2
