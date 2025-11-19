@@ -405,26 +405,25 @@ if submit_button:
                                          'XGBoost']
                                         
                        results_data = []
-                            for model, prediction in  essential_models.items():
-                                results_data.append({
-                                    'Model': model,
-                                    'Predicted Ionic Conductivity (S/cm)': prediction
-                                })
+                       for model, prediction in  essential_models.items():
+                           results_data.append({
+                                'Model': model,
+                                'Predicted Ionic Conductivity (S/cm)': prediction
+                            })
                             
-                            results_df = pd.DataFrame(results_data)
-                            st.dataframe(results_df)
+                       results_df = pd.DataFrame(results_data)
+                       st.dataframe(results_df)     
+               
+                       else:
+                           st.error("Model not available in current environment")
                             
-                            
-                            
-                        else:
-                            st.error("Model not available in current environment")
-                            
-                    except Exception as e:
-                        st.error(f"Prediction failed: {str(e)}")
+                   except Exception as e:
+                       st.error(f"Prediction failed: {str(e)}")
                         
                     
-                except Exception as e:
-                    st.error(f"An error occurred: {str(e)}")
+               except Exception as e:
+                   st.error(f"An error occurred: {str(e)}")
+
 
 
 
