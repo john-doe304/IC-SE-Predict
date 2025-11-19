@@ -1,3 +1,49 @@
+[file name]: image.png
+[file content begin]
+# Crystal Structure Information
+
+Material ID:  
+mp-942733-66A  
+
+Formula: L17La3Zr2O12  
+
+Space Group: N/A (N/A)  
+
+Density: 5.01 g/cm³  
+
+Volume: 1112.63 Å³  
+
+Formation Energy: -7.484 eV/atom  
+
+---
+
+## Structure Analysis
+
+Structure Type: Orthorhombic/triclinic  
+
+Symmetry: Low  
+
+---
+
+## Crystal Structure
+
+### Crystal Structure: L17La3Zr2O12
+
+---
+
+## Crystal Structure
+
+L17La3Zr2O12  
+
+View detailed structure on Materials Project  
+
+---
+
+**Total features extracted: 276**
+
+
+[file content end]
+
 import streamlit as st
 from rdkit import Chem
 from rdkit.Chem import Descriptors, Draw, AllChem
@@ -240,55 +286,48 @@ def get_materials_project_structure_simple(formula, api_key):
         return None, f"Error accessing Materials Project: {str(e)}"
 
 def display_crystal_structure_image(material_id, formula, api_key):
-    """直接显示Materials Project的晶体结构图片"""
+    """显示晶体结构信息，包括直接链接和图片"""
     try:
         st.subheader("🎯 Crystal Structure")
         
         # 清理material_id（去掉-mp后缀）
         clean_material_id = material_id.split('-')[0] if '-' in material_id else material_id
         
-        # Materials Project的官方图片URL
-        image_url = f"https://next-gen.materialsproject.org/materials/{clean_material_id}/image"
+        # 尝试多种图片URL格式
+        image_urls = [
+            f"https://next-gen.materialsproject.org/materials/{clean_material_id}/image",
+            f"https://legacy.materialsproject.org/materials/{clean_material_id}/image",
+            f"https://materialsproject.org/materials/{clean_material_id}/image"
+        ]
         
-        # 尝试下载并显示图片
-        try:
-            headers = {
-                "X-API-KEY": api_key,
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            }
-            
-            response = requests.get(image_url, headers=headers, timeout=10)
-            
-            if response.status_code == 200 and response.content:
-                # 成功获取图片
-                image = Image.open(BytesIO(response.content))
-                st.markdown(f"""
-                <div class="crystal-image-container">
-                    <h4>Crystal Structure: {formula}</h4>
-                </div>
-                """, unsafe_allow_html=True)
-                st.image(image, caption=f"Crystal Structure: {formula}", use_column_width=True)
-                return True
-            else:
-                # 如果图片获取失败，显示占位图和链接
-                st.markdown(f"""
-                <div class="crystal-image-container">
-                    <h4>Crystal Structure: {formula}</h4>
-                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                              padding: 60px 20px; border-radius: 8px; color: white; margin: 20px 0;">
-                        <h3>🔬 Crystal Structure</h3>
-                        <p><strong>{formula}</strong></p>
-                        <p>View detailed structure on Materials Project</p>
-                    </div>
-                    <p style="color: #666; margin-top: 10px;">
-                        The crystal structure image is available on Materials Project
-                    </p>
-                </div>
-                """, unsafe_allow_html=True)
-                return False
+        image_found = False
+        
+        for image_url in image_urls:
+            try:
+                headers = {
+                    "X-API-KEY": api_key,
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                }
                 
-        except Exception as img_error:
-            # 如果图片下载失败，显示占位图
+                response = requests.get(image_url, headers=headers, timeout=10)
+                
+                if response.status_code == 200 and response.content:
+                    # 成功获取图片
+                    image = Image.open(BytesIO(response.content))
+                    st.markdown(f"""
+                    <div class="crystal-image-container">
+                        <h4>Crystal Structure: {formula}</h4>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    st.image(image, caption=f"Crystal Structure: {formula}", use_column_width=True)
+                    image_found = True
+                    break
+                    
+            except Exception as img_error:
+                continue
+        
+        if not image_found:
+            # 如果所有图片URL都失败，显示占位图和链接
             st.markdown(f"""
             <div class="crystal-image-container">
                 <h4>Crystal Structure: {formula}</h4>
@@ -298,28 +337,45 @@ def display_crystal_structure_image(material_id, formula, api_key):
                     <p><strong>{formula}</strong></p>
                     <p>View detailed structure on Materials Project</p>
                 </div>
+                <p style="color: #666; margin-top: 10px;">
+                    The crystal structure image is available on Materials Project website
+                </p>
             </div>
             """, unsafe_allow_html=True)
-            return False
         
-        # 添加查看详情链接
-        material_url = f"https://next-gen.materialsproject.org/materials/{clean_material_id}"
-        st.markdown(f"""
+        # 添加查看详情链接 - 尝试多种URL格式
+        material_urls = [
+            f"https://next-gen.materialsproject.org/materials/{clean_material_id}",
+            f"https://legacy.materialsproject.org/materials/{clean_material_id}",
+            f"https://materialsproject.org/materials/{clean_material_id}"
+        ]
+        
+        st.markdown("""
         <div style="text-align: center; margin: 15px 0;">
-            <a href="{material_url}" target="_blank" style="
-                display: inline-block;
-                padding: 10px 20px;
-                background-color: #1976d2;
-                color: white;
-                text-decoration: none;
-                border-radius: 5px;
-                font-weight: bold;
-                font-size: 0.9em;
-            ">
-            🔍 View Interactive Structure on Materials Project
-            </a>
+            <p><strong>View Interactive Structure:</strong></p>
         </div>
         """, unsafe_allow_html=True)
+        
+        for i, url in enumerate(material_urls):
+            st.markdown(f"""
+            <div style="text-align: center; margin: 10px 0;">
+                <a href="{url}" target="_blank" style="
+                    display: inline-block;
+                    padding: 8px 16px;
+                    background-color: #1976d2;
+                    color: white;
+                    text-decoration: none;
+                    border-radius: 5px;
+                    font-weight: bold;
+                    font-size: 0.9em;
+                    margin: 5px;
+                ">
+                🔍 Link {i+1} - Materials Project
+                </a>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        return image_found
         
     except Exception as e:
         st.error(f"Error displaying crystal structure: {str(e)}")
@@ -498,7 +554,7 @@ if submit_button:
                                 with col4:
                                     st.write(f"**Symmetry:** {structure_info['symmetry'].capitalize()}")
                                 
-                                # 直接显示晶体结构图片
+                                # 显示晶体结构图片和链接
                                 display_crystal_structure_image(
                                     mp_data['material_id'], 
                                     mp_data['pretty_formula'],
