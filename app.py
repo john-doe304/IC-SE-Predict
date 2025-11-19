@@ -3,11 +3,11 @@
 # Crystal Structure Information
 
 Material ID:  
-mp-942733-66A  
+mp-942733  
 
 Formula: L17La3Zr2O12  
 
-Space Group: N/A (N/A)  
+
 
 Density: 5.01 g/cm³  
 
@@ -638,3 +638,4 @@ if submit_button:
                     
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
+
