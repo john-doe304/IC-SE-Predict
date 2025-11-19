@@ -11,8 +11,8 @@ import tempfile
 import base64
 from io import BytesIO
 from autogluon.tabular import FeatureMetadata
-import gc  # 添加垃圾回收模块
-import re  # 添加正则表达式模块用于处理SVG
+import gc
+import re
 from tqdm import tqdm 
 import numpy as np
 from pymatgen.core import Composition, Structure
@@ -22,6 +22,9 @@ import io
 import requests
 from PIL import Image
 import base64
+import py3Dmol
+from stmol import showmol
+import plotly.express as px
 
 # 添加 CSS 样式
 st.markdown(
@@ -51,8 +54,8 @@ st.markdown(
         font-size: 1.1em;
         border-radius: 10px;
     }
-    /* 晶体结构图片样式 */
-    .crystal-image-container {
+    /* 晶体结构容器样式 */
+    .crystal-structure-container {
         border: 2px solid #ddd;
         border-radius: 10px;
         padding: 20px;
@@ -61,8 +64,12 @@ st.markdown(
         text-align: center;
         box-shadow: 0 4px 8px rgba(0,0,0,0.1);
     }
-    .crystal-image {
-        max-width: 100%;
+    /* 3D查看器样式 */
+    .mol-container {
+        width: 100%;
+        height: 400px;
+        position: relative;
+        border: 1px solid #ccc;
         border-radius: 8px;
         margin: 10px 0;
     }
@@ -239,101 +246,154 @@ def get_materials_project_structure_simple(formula, api_key):
     except Exception as e:
         return None, f"Error accessing Materials Project: {str(e)}"
 
-def display_crystal_structure_image(material_id, formula, api_key):
-    """显示晶体结构信息，包括直接链接和图片"""
+def create_3d_structure_viewer(structure):
+    """使用py3Dmol创建3D晶体结构查看器"""
     try:
-        st.subheader("🎯 Crystal Structure")
+        # 将结构转换为CIF格式
+        cif_string = structure.to(fmt="cif")
         
-        # 清理material_id（去掉-mp后缀）
-        clean_material_id = material_id.split('-')[0] if '-' in material_id else material_id
+        # 创建3D查看器
+        viewer = py3Dmol.view(width=400, height=300)
+        viewer.addModel(cif_string, 'cif')
+        viewer.setStyle({'stick': {'radius': 0.15}, 'sphere': {'radius': 0.5}})
+        viewer.zoomTo()
+        viewer.setBackgroundColor('0xeeeeee')
         
-        # 尝试多种图片URL格式
-        image_urls = [
-            f"https://next-gen.materialsproject.org/materials/{clean_material_id}/image",
-            f"https://legacy.materialsproject.org/materials/{clean_material_id}/image",
-            f"https://materialsproject.org/materials/{clean_material_id}/image"
-        ]
-        
-        image_found = False
-        
-        for image_url in image_urls:
-            try:
-                headers = {
-                    "X-API-KEY": api_key,
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                }
-                
-                response = requests.get(image_url, headers=headers, timeout=10)
-                
-                if response.status_code == 200 and response.content:
-                    # 成功获取图片
-                    image = Image.open(BytesIO(response.content))
-                    st.markdown(f"""
-                    <div class="crystal-image-container">
-                        <h4>Crystal Structure: {formula}</h4>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    st.image(image, caption=f"Crystal Structure: {formula}", use_column_width=True)
-                    image_found = True
-                    break
-                    
-            except Exception as img_error:
-                continue
-        
-        if not image_found:
-            # 如果所有图片URL都失败，显示占位图和链接
-            st.markdown(f"""
-            <div class="crystal-image-container">
-                <h4>Crystal Structure: {formula}</h4>
-                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                          padding: 60px 20px; border-radius: 8px; color: white; margin: 20px 0;">
-                    <h3>🔬 Crystal Structure</h3>
-                    <p><strong>{formula}</strong></p>
-                    <p>View detailed structure on Materials Project</p>
-                </div>
-                <p style="color: #666; margin-top: 10px;">
-                    The crystal structure image is available on Materials Project website
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        # 添加查看详情链接 - 尝试多种URL格式
-        material_urls = [
-            f"https://next-gen.materialsproject.org/materials/{clean_material_id}",
-            f"https://legacy.materialsproject.org/materials/{clean_material_id}",
-            f"https://materialsproject.org/materials/{clean_material_id}"
-        ]
-        
-        st.markdown("""
-        <div style="text-align: center; margin: 15px 0;">
-            <p><strong>View Interactive Structure:</strong></p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        for i, url in enumerate(material_urls):
-            st.markdown(f"""
-            <div style="text-align: center; margin: 10px 0;">
-                <a href="{url}" target="_blank" style="
-                    display: inline-block;
-                    padding: 8px 16px;
-                    background-color: #1976d2;
-                    color: white;
-                    text-decoration: none;
-                    border-radius: 5px;
-                    font-weight: bold;
-                    font-size: 0.9em;
-                    margin: 5px;
-                ">
-                🔍 Link {i+1} - Materials Project
-                </a>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        return image_found
+        return viewer
         
     except Exception as e:
-        st.error(f"Error displaying crystal structure: {str(e)}")
-        return False
+        st.error(f"Error creating 3D viewer: {str(e)}")
+        return None
+
+def display_structure_visualization(mp_data, api_key):
+    """显示晶体结构可视化"""
+    try:
+        st.subheader("🎯 Crystal Structure Visualization")
+        
+        # 创建选项卡：3D查看器、外部链接、结构信息
+        tab1, tab2, tab3 = st.tabs(["3D Structure Viewer", "External Links", "Structure Info"])
+        
+        with tab1:
+            st.markdown("### Interactive 3D Structure")
+            
+            # 创建3D查看器
+            viewer = create_3d_structure_viewer(mp_data['structure'])
+            if viewer:
+                # 在Streamlit中显示3D查看器
+                showmol(viewer, height=400, width=600)
+                
+                # 添加查看控制说明
+                st.markdown("""
+                **Viewer Controls:**
+                - **Rotate:** Click and drag
+                - **Zoom:** Scroll mouse wheel
+                - **Pan:** Shift + Click and drag
+                - **Reset:** Double click
+                """)
+            else:
+                st.warning("3D viewer could not be initialized. Showing structure information instead.")
+                display_structure_info(mp_data)
+        
+        with tab2:
+            st.markdown("### View on External Databases")
+            
+            material_id = mp_data['material_id']
+            clean_material_id = material_id.split('-')[0] if '-' in material_id else material_id
+            formula = mp_data['pretty_formula']
+            
+            # Materials Project 链接
+            st.markdown("#### Materials Project")
+            mp_urls = [
+                f"https://next-gen.materialsproject.org/materials/{clean_material_id}",
+                f"https://legacy.materialsproject.org/materials/{clean_material_id}",
+            ]
+            
+            for i, url in enumerate(mp_urls):
+                st.markdown(f"[🔗 Materials Project Link {i+1}]({url})")
+            
+            # Crystallography Open Database 链接
+            st.markdown("#### Crystallography Open Database (COD)")
+            cod_url = f"https://www.crystallography.net/cod/search?formula={formula}"
+            st.markdown(f"[🔗 Search COD for {formula}]({cod_url})")
+            
+            # Springer Materials 链接
+            st.markdown("#### Springer Materials")
+            springer_url = f"https://materials.springer.com/search?searchTerm={formula}"
+            st.markdown(f"[🔗 Search Springer Materials]({springer_url})")
+            
+        with tab3:
+            display_structure_info(mp_data)
+            
+    except Exception as e:
+        st.error(f"Error displaying structure visualization: {str(e)}")
+
+def display_structure_info(mp_data):
+    """显示结构信息"""
+    st.markdown("### Structure Information")
+    
+    # 分析结构特征
+    structure_info = analyze_structure_features(mp_data['structure'])
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write(f"**Material ID:** `{mp_data['material_id']}`")
+        st.write(f"**Formula:** {mp_data['pretty_formula']}")
+        st.write(f"**Space Group:** {mp_data['spacegroup'].get('symbol', 'N/A')} ({mp_data['spacegroup'].get('number', 'N/A')})")
+        st.write(f"**Structure Type:** {structure_info['structure_type'].capitalize()}")
+        
+    with col2:
+        if mp_data['density'] != 'N/A':
+            st.write(f"**Density:** {mp_data['density']:.2f} g/cm³")
+        else:
+            st.write(f"**Density:** N/A")
+        if mp_data['volume'] != 'N/A':
+            st.write(f"**Volume:** {mp_data['volume']:.2f} Å³")
+        else:
+            st.write(f"**Volume:** N/A")
+        if mp_data['formation_energy_per_atom'] != 'N/A':
+            st.write(f"**Formation Energy:** {mp_data['formation_energy_per_atom']:.3f} eV/atom")
+        else:
+            st.write(f"**Formation Energy:** N/A")
+        st.write(f"**Symmetry:** {structure_info['symmetry'].capitalize()}")
+
+def create_static_structure_plot(structure):
+    """创建静态晶体结构图"""
+    try:
+        # 使用plotly创建晶格参数可视化
+        a, b, c = structure.lattice.abc
+        alpha, beta, gamma = structure.lattice.angles
+        
+        fig = go.Figure()
+        
+        # 添加晶格参数信息
+        fig.add_annotation(
+            text=f"Lattice Parameters:<br>a={a:.2f}Å, b={b:.2f}Å, c={c:.2f}Å<br>"
+                 f"α={alpha:.1f}°, β={beta:.1f}°, γ={gamma:.1f}°<br>"
+                 f"Volume: {structure.volume:.2f}Å³<br>"
+                 f"Density: {structure.density:.2f} g/cm³",
+            x=0.5, y=0.5, xref="paper", yref="paper",
+            showarrow=False,
+            font=dict(size=12),
+            bgcolor="white",
+            bordercolor="black",
+            borderwidth=1
+        )
+        
+        fig.update_layout(
+            title="Crystal Lattice Parameters",
+            xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
+            yaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
+            showlegend=False,
+            height=300,
+            margin=dict(l=20, r=20, t=40, b=20),
+            paper_bgcolor='lightgray'
+        )
+        
+        return fig
+        
+    except Exception as e:
+        st.error(f"Error creating structure plot: {str(e)}")
+        return None
 
 def analyze_structure_features(structure):
     """分析晶体结构特征"""
@@ -474,50 +534,22 @@ if submit_button:
                             if mp_data and mp_error is None:
                                 st.success("✅ Crystal structure retrieved from Materials Project")
                                 
-                                # 显示材料信息
-                                st.subheader("📊 Crystal Structure Information")
-                                col1, col2 = st.columns(2)
-                                
-                                with col1:
-                                    st.write(f"**Material ID:** `{mp_data['material_id']}`")
-                                    st.write(f"**Formula:** {mp_data['pretty_formula']}")
-                                    st.write(f"**Space Group:** {mp_data['spacegroup'].get('symbol', 'N/A')} ({mp_data['spacegroup'].get('number', 'N/A')})")
-                                    
-                                with col2:
-                                    if mp_data['density'] != 'N/A':
-                                        st.write(f"**Density:** {mp_data['density']:.2f} g/cm³")
-                                    else:
-                                        st.write(f"**Density:** N/A")
-                                    if mp_data['volume'] != 'N/A':
-                                        st.write(f"**Volume:** {mp_data['volume']:.2f} Å³")
-                                    else:
-                                        st.write(f"**Volume:** N/A")
-                                    if mp_data['formation_energy_per_atom'] != 'N/A':
-                                        st.write(f"**Formation Energy:** {mp_data['formation_energy_per_atom']:.3f} eV/atom")
-                                    else:
-                                        st.write(f"**Formation Energy:** N/A")
-                                
-                                # 分析结构特征
-                                structure_info = analyze_structure_features(mp_data['structure'])
-                                
-                                # 显示结构分析
-                                st.subheader("🔬 Structure Analysis")
-                                col3, col4 = st.columns(2)
-                                with col3:
-                                    st.write(f"**Structure Type:** {structure_info['structure_type'].capitalize()}")
-                                with col4:
-                                    st.write(f"**Symmetry:** {structure_info['symmetry'].capitalize()}")
-                                
-                                # 显示晶体结构图片和链接
-                                display_crystal_structure_image(
-                                    mp_data['material_id'], 
-                                    mp_data['pretty_formula'],
-                                    mp_api_key
-                                )
+                                # 显示结构可视化
+                                display_structure_visualization(mp_data, mp_api_key)
                                 
                             else:
                                 st.warning(f"Could not retrieve crystal structure: {mp_error}")
-                                st.info("💡 The material might not exist in Materials Project database, or try a different formula")
+                                # 即使没有获取到结构，也显示基本信息
+                                st.info("💡 The material might not exist in Materials Project database")
+                                # 显示外部数据库链接
+                                st.subheader("🔗 Search on External Databases")
+                                formula = formula_input
+                                cod_url = f"https://www.crystallography.net/cod/search?formula={formula}"
+                                springer_url = f"https://materials.springer.com/search?searchTerm={formula}"
+                                
+                                st.markdown(f"- [Crystallography Open Database (COD)]({cod_url})")
+                                st.markdown(f"- [Springer Materials]({springer_url})")
+                                st.markdown(f"- [Materials Project Search](https://next-gen.materialsproject.org/search)")
                     else:
                         st.info("💡 Enter a Materials Project API key to view crystal structure information")
                     
@@ -592,6 +624,3 @@ if submit_button:
                     
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
-
-
-
