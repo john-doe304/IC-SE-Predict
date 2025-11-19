@@ -26,6 +26,21 @@ import py3Dmol
 from stmol import showmol
 import plotly.express as px
 
+# 检查并处理依赖
+try:
+    import rich
+    st.sidebar.info(f"Rich version: {rich.__version__}")
+except ImportError:
+    st.warning("Rich not available")
+
+# 3D可视化库检查
+try:
+    import py3Dmol
+    from stmol import showmol
+    _3D_AVAILABLE = True
+except ImportError as e:
+    _3D_AVAILABLE = False
+    st.sidebar.warning(f"3D visualization disabled: {str(e)}")
 # 添加 CSS 样式
 st.markdown(
     """
@@ -247,7 +262,10 @@ def get_materials_project_structure_simple(formula, api_key):
         return None, f"Error accessing Materials Project: {str(e)}"
 
 def create_3d_structure_viewer(structure):
-    """使用py3Dmol创建3D晶体结构查看器"""
+    """创建3D晶体结构查看器"""
+    if not _3D_AVAILABLE:
+        return None
+        
     try:
         # 将结构转换为CIF格式
         cif_string = structure.to(fmt="cif")
@@ -255,14 +273,27 @@ def create_3d_structure_viewer(structure):
         # 创建3D查看器
         viewer = py3Dmol.view(width=400, height=300)
         viewer.addModel(cif_string, 'cif')
-        viewer.setStyle({'stick': {'radius': 0.15}, 'sphere': {'radius': 0.5}})
+        
+        # 简化的元素颜色设置
+        element_colors = {
+            'Li': '0xFF0000', 'La': '0x00FF00', 'Zr': '0x0000FF',
+            'O': '0xFFA500', 'P': '0x800080', 'S': '0xFFFF00',
+            'Cl': '0x00FFFF', 'F': '0x008000'
+        }
+        
+        # 为每种元素设置样式
+        for element in set(structure.species):
+            element_symbol = element.symbol
+            color = element_colors.get(element_symbol, '0xCCCCCC')
+            viewer.setStyle({'elem': element_symbol}, 
+                           {'stick': {'radius': 0.1, 'color': color}})
+        
         viewer.zoomTo()
         viewer.setBackgroundColor('0xeeeeee')
-        
         return viewer
         
     except Exception as e:
-        st.error(f"Error creating 3D viewer: {str(e)}")
+        st.error(f"3D viewer error: {str(e)}")
         return None
 
 def display_structure_visualization(mp_data, api_key):
@@ -624,3 +655,4 @@ if submit_button:
                     
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
+
