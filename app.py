@@ -683,20 +683,21 @@ if submit_button:
                               predictions_dict[model] = "Error"
 
                        # 显示预测结果
-                      st.write("Prediction Results (Essential Models):")
-                      st.markdown(
+                       st.write("Prediction Results (Essential Models):")
+                       st.markdown(
                             "**Note:** WeightedEnsemble_L2 is a meta-model combining predictions from other models.")
-                      results_df = pd.DataFrame(predictions_dict)
-                      st.dataframe(results_df.iloc[:1,:])
+                       results_df = pd.DataFrame(predictions_dict)
+                       st.dataframe(results_df.iloc[:1,:])
                     
-                      # 主动释放内存
-                     del predictor
-                     gc.collect()
+                       # 主动释放内存
+                       del predictor
+                       gc.collect()
 
-                    except Exception as e:
-                       st.error(f"Model loading failed: {str(e)}")
+                     except Exception as e:
+                         st.error(f"Model loading failed: {str(e)}")
                     
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
+
 
 
