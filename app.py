@@ -418,8 +418,9 @@ if submit_button:
                        st.info("💡 These are example predictions. For accurate results, ensure all dependencies are properly installed.")
                             
                        
-                except Exception as e:
-                    st.error(f"An error occurred: {str(e)}")
+                   except Exception as e:
+                       st.error(f"An error occurred: {str(e)}")
+
 
 
 
