@@ -693,11 +693,12 @@ if submit_button:
                        del predictor
                        gc.collect()
 
-                     except Exception as e:
-                         st.error(f"Model loading failed: {str(e)}")
+                   except Exception as e:
+                       st.error(f"Model loading failed: {str(e)}")
                     
-                except Exception as e:
-                    st.error(f"An error occurred: {str(e)}")
+               except Exception as e:
+                   st.error(f"An error occurred: {str(e)}")
+
 
 
 
