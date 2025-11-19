@@ -1,49 +1,3 @@
-[file name]: image.png
-[file content begin]
-# Crystal Structure Information
-
-Material ID:  
-mp-942733-66A  
-
-Formula: L17La3Zr2O12  
-
-Space Group: N/A (N/A)  
-
-Density: 5.01 g/cm³  
-
-Volume: 1112.63 Å³  
-
-Formation Energy: -7.484 eV/atom  
-
----
-
-## Structure Analysis
-
-Structure Type: Orthorhombic/triclinic  
-
-Symmetry: Low  
-
----
-
-## Crystal Structure
-
-### Crystal Structure: L17La3Zr2O12
-
----
-
-## Crystal Structure
-
-L17La3Zr2O12  
-
-View detailed structure on Materials Project  
-
----
-
-**Total features extracted: 276**
-
-
-[file content end]
-
 import streamlit as st
 from rdkit import Chem
 from rdkit.Chem import Descriptors, Draw, AllChem
@@ -638,3 +592,4 @@ if submit_button:
                     
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
+
