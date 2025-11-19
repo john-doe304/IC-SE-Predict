@@ -10,3 +10,5 @@ matminer==0.9.3
 
 mordred
 #git+https://github.com/mordred-descriptor/mordred.git
+
+rich>=10.14.0,<14.0.0
