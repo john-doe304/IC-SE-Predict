@@ -1,12 +1,73 @@
+[file name]: image.png
+[file content begin]
+# Crystal Structure Information
+
+Material ID:  
+mp-942733-66A  
+
+Formula: L17La3Zr2O12  
+
+Space Group: N/A (N/A)  
+
+Density: 5.01 g/cm³  
+
+Volume: 1112.63 Å³  
+
+Formation Energy: -7.484 eV/atom  
+
+---
+
+## Structure Analysis
+
+Structure Type: Orthorhombic/triclinic  
+
+Symmetry: Low  
+
+---
+
+## Crystal Structure
+
+### Crystal Structure: L17La3Zr2O12
+
+---
+
+## Crystal Structure
+
+L17La3Zr2O12  
+
+View detailed structure on Materials Project  
+
+---
+
+**Total features extracted: 276**
+
+
+[file content end]
+
 import streamlit as st
+from rdkit import Chem
+from rdkit.Chem import Descriptors, Draw, AllChem
+from rdkit.Chem.Draw import MolDraw2DSVG
+from rdkit.ML.Descriptors import MoleculeDescriptors
+from mordred import Calculator, descriptors
+from mordred import Calculator, descriptors
 import pandas as pd
-import numpy as np
 from autogluon.tabular import TabularPredictor
-import gc
+import tempfile
+import base64
+from io import BytesIO
+from autogluon.tabular import FeatureMetadata
+import gc  # 添加垃圾回收模块
+import re  # 添加正则表达式模块用于处理SVG
+from tqdm import tqdm 
+import numpy as np
+from pymatgen.core import Composition, Structure
+from pymatgen.ext.matproj import MPRester
+import plotly.graph_objects as go
+import io
 import requests
 from PIL import Image
 import base64
-from io import BytesIO
 
 # 添加 CSS 样式
 st.markdown(
@@ -36,8 +97,8 @@ st.markdown(
         font-size: 1.1em;
         border-radius: 10px;
     }
-    /* 晶体结构容器样式 */
-    .crystal-structure-container {
+    /* 晶体结构图片样式 */
+    .crystal-image-container {
         border: 2px solid #ddd;
         border-radius: 10px;
         padding: 20px;
@@ -46,15 +107,10 @@ st.markdown(
         text-align: center;
         box-shadow: 0 4px 8px rgba(0,0,0,0.1);
     }
-    .database-link {
-        display: inline-block;
-        margin: 5px;
-        padding: 8px 15px;
-        background-color: #1976d2;
-        color: white;
-        text-decoration: none;
-        border-radius: 5px;
-        font-weight: bold;
+    .crystal-image {
+        max-width: 100%;
+        border-radius: 8px;
+        margin: 10px 0;
     }
     </style>
     """,
@@ -84,7 +140,8 @@ temperature = st.number_input("Select Temperature (K):", min_value=200, max_valu
 # Materials Project API 密钥输入
 mp_api_key = st.text_input("Materials Project API Key (optional):", 
                           placeholder="Enter your API key to view crystal structure",
-                          type="password")
+                          type="password",
+                          value="Gd6Y2d9mtjquU8imu8n4GdIiwCvUtZqN")
 
 # 提交按钮
 submit_button = st.button("Submit and Predict", key="predict_button")
@@ -120,177 +177,301 @@ def validate_chemical_formula(formula):
     
     return True, "Valid formula"
 
-def get_crystal_structure_links(formula):
-    """生成晶体结构数据库链接"""
-    links = {}
-    
-    # Materials Project 链接
-    links['Materials Project'] = f"https://next-gen.materialsproject.org/search?formula={formula}"
-    
-    # Crystallography Open Database (COD) 链接
-    links['Crystallography Open Database'] = f"https://www.crystallography.net/cod/search?formula={formula}"
-    
-    # Springer Materials 链接
-    links['Springer Materials'] = f"https://materials.springer.com/search?searchTerm={formula}"
-    
-    # AFLOW 链接
-    links['AFLOW'] = f"http://aflow.org/search/?formula={formula}"
-    
-    # OQMD 链接
-    links['OQMD'] = f"http://oqmd.org/search?formula={formula}"
-    
-    return links
-
-def create_structure_diagram_placeholder(formula):
-    """创建晶体结构占位图"""
-    # 创建一个简单的SVG占位图
-    svg_content = f"""
-    <svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
-        <rect width="100%" height="100%" fill="#f0f8ff"/>
-        <circle cx="200" cy="150" r="80" fill="#e6f3ff" stroke="#1976d2" stroke-width="2"/>
-        <text x="200" y="120" text-anchor="middle" font-family="Arial" font-size="16" fill="#1976d2">Crystal Structure</text>
-        <text x="200" y="150" text-anchor="middle" font-family="Arial" font-size="14" fill="#1976d2">{formula}</text>
-        <text x="200" y="180" text-anchor="middle" font-family="Arial" font-size="12" fill="#666">Interactive viewer available</text>
-        <text x="200" y="200" text-anchor="middle" font-family="Arial" font-size="12" fill="#666">on external databases</text>
-    </svg>
-    """
-    return svg_content
-
-def display_crystal_structure_section(formula, mp_api_key=None):
-    """显示晶体结构部分"""
-    st.subheader("🎯 Crystal Structure Information")
-    
-    # 创建选项卡
-    tab1, tab2, tab3 = st.tabs(["Structure Viewer", "Database Links", "Structure Info"])
-    
-    with tab1:
-        st.markdown("### Crystal Structure Visualization")
-        
-        # 显示占位图
-        svg_placeholder = create_structure_diagram_placeholder(formula)
-        st.markdown(f'<div style="text-align: center">{svg_placeholder}</div>', unsafe_allow_html=True)
-        
-        st.markdown("""
-        <div style="text-align: center; margin: 20px 0;">
-            <p><strong>Interactive 3D structure viewers available on external databases:</strong></p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # 快速链接
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🚀 Open Materials Project", key="mp_btn"):
-                st.markdown(f"[Open Materials Project](https://next-gen.materialsproject.org/search?formula={formula})", unsafe_allow_html=True)
-        with col2:
-            if st.button("📚 Open COD", key="cod_btn"):
-                st.markdown(f"[Open Crystallography Open Database](https://www.crystallography.net/cod/search?formula={formula})", unsafe_allow_html=True)
-    
-    with tab2:
-        st.markdown("### External Crystal Structure Databases")
-        
-        links = get_crystal_structure_links(formula)
-        
-        st.markdown("""
-        <div style="background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin: 10px 0;">
-            <h4>🔍 Search on these databases:</h4>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        for db_name, url in links.items():
-            st.markdown(f"""
-            <div style="margin: 8px 0;">
-                <a href="{url}" target="_blank" style="
-                    display: block;
-                    padding: 12px;
-                    background-color: white;
-                    border: 1px solid #ddd;
-                    border-radius: 5px;
-                    text-decoration: none;
-                    color: #333;
-                    font-weight: 500;
-                    transition: all 0.3s;
-                " onmouseover="this.style.backgroundColor='#e3f2fd'; this.style.borderColor='#1976d2'" 
-                 onmouseout="this.style.backgroundColor='white'; this.style.borderColor='#ddd'">
-                🔗 {db_name}
-                </a>
-            </div>
-            """, unsafe_allow_html=True)
-    
-    with tab3:
-        st.markdown("### Structure Information")
-        
-        # 显示基本结构信息
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Formula", formula)
-            st.metric("Expected Structure Types", "Garnet/Perovskite/etc.")
-        with col2:
-            st.metric("Common Space Groups", "Ia-3d, Pm-3m, etc.")
-            st.metric("Typical Applications", "Solid Electrolyte")
-        
-        st.markdown("""
-        **Common Solid Electrolyte Structure Types:**
-        - **Garnet-type**: Li₇La₃Zr₂O₁₂, cubic/tetragonal
-        - **NASICON-type**: Li₁₊ₓAlₓTi₂₋ₓ(PO₄)₃
-        - **Perovskite-type**: Li₃ₓLa₂/₃₋ₓTiO₃
-        - **LISICON-type**: Li₁₄Zn(GeO₄)₄
-        - **Thio-LISICON**: Li₁₀GeP₂S₁₂
-        """)
-
-def get_materials_project_info_simple(formula, api_key):
-    """简化版Materials Project信息获取"""
-    if not api_key:
+def get_materials_project_structure_simple(formula, api_key):
+    """使用简单直接的方法获取晶体结构信息"""
+    if not api_key or not api_key.strip():
         return None, "No API key provided"
     
     try:
-        # 这里使用Materials Project的REST API
-        base_url = "https://api.materialsproject.org"
-        headers = {
-            "X-API-KEY": api_key
-        }
+        api_key = api_key.strip()
         
-        # 搜索材料
-        search_url = f"{base_url}/materials/summary/?formula={formula}"
-        response = requests.get(search_url, headers=headers)
+        if len(api_key) != 32 or not all(c.isalnum() for c in api_key):
+            return None, "Invalid API key format. API key should be 32 alphanumeric characters."
         
-        if response.status_code == 200:
-            data = response.json()
-            if data.get('data'):
-                material = data['data'][0]
+        with MPRester(api_key) as mpr:
+            # 方法1: 直接使用get_entries获取结构
+            try:
+                entries = mpr.get_entries(formula, inc_structure=True)
+                
+                if not entries:
+                    return None, f"No materials found for formula: {formula}"
+                
+                # 选择第一个材料（通常是最稳定的）
+                material = entries[0]
+                structure = material.structure
+                material_id = material.entry_id
+                
+                # 获取材料的基本信息
+                try:
+                    # 使用summary.search获取详细信息
+                    summary_results = mpr.summary.search(material_id=material_id, fields=[
+                        "formula_pretty", "spacegroup", "density", "volume", 
+                        "formation_energy_per_atom", "band_gap"
+                    ])
+                    
+                    if summary_results:
+                        material_data = summary_results[0]
+                        pretty_formula = material_data.formula_pretty
+                        spacegroup_data = material_data.spacegroup
+                        spacegroup_symbol = spacegroup_data.symbol if spacegroup_data else "N/A"
+                        spacegroup_number = spacegroup_data.number if spacegroup_data else "N/A"
+                        density = material_data.density
+                        volume = material_data.volume
+                        formation_energy = material_data.formation_energy_per_atom
+                        band_gap = material_data.band_gap
+                    else:
+                        # 如果summary.search失败，使用基本数据
+                        pretty_formula = formula
+                        spacegroup_symbol = "N/A"
+                        spacegroup_number = "N/A"
+                        density = structure.density
+                        volume = structure.volume
+                        formation_energy = material.energy_per_atom
+                        band_gap = "N/A"
+                        
+                except Exception as detail_error:
+                    # 如果获取详细信息失败，使用基本数据
+                    pretty_formula = formula
+                    spacegroup_symbol = "N/A"
+                    spacegroup_number = "N/A"
+                    density = structure.density
+                    volume = structure.volume
+                    formation_energy = material.energy_per_atom
+                    band_gap = "N/A"
+                
                 return {
-                    'material_id': material.get('material_id', 'N/A'),
-                    'formula_pretty': material.get('formula_pretty', formula),
-                    'spacegroup': material.get('spacegroup', {}),
-                    'density': material.get('density', 'N/A'),
-                    'volume': material.get('volume', 'N/A'),
-                    'formation_energy_per_atom': material.get('formation_energy_per_atom', 'N/A'),
-                    'band_gap': material.get('band_gap', 'N/A')
+                    'structure': structure,
+                    'material_id': material_id,
+                    'spacegroup': {
+                        'symbol': spacegroup_symbol,
+                        'number': spacegroup_number
+                    },
+                    'density': density,
+                    'volume': volume,
+                    'formation_energy_per_atom': formation_energy,
+                    'band_gap': band_gap,
+                    'formula': formula,
+                    'pretty_formula': pretty_formula
                 }, None
-        return None, "Material not found in Materials Project"
-        
+                
+            except Exception as entries_error:
+                # 方法2: 使用直接的结构获取
+                try:
+                    # 搜索材料ID
+                    search_results = mpr.summary.search(formula=formula, fields=["material_id"])
+                    if not search_results:
+                        return None, f"No materials found for formula: {formula}"
+                    
+                    material_id = search_results[0].material_id
+                    
+                    # 直接获取结构
+                    structure = mpr.get_structure_by_material_id(material_id)
+                    
+                    return {
+                        'structure': structure,
+                        'material_id': material_id,
+                        'spacegroup': {'symbol': 'N/A', 'number': 'N/A'},
+                        'density': structure.density,
+                        'volume': structure.volume,
+                        'formation_energy_per_atom': 'N/A',
+                        'band_gap': 'N/A',
+                        'formula': formula,
+                        'pretty_formula': formula
+                    }, None
+                    
+                except Exception as direct_error:
+                    return None, f"All methods failed: {str(direct_error)}"
+            
     except Exception as e:
         return None, f"Error accessing Materials Project: {str(e)}"
+
+def display_crystal_structure_image(material_id, formula, api_key):
+    """显示晶体结构信息，包括直接链接和图片"""
+    try:
+        st.subheader("🎯 Crystal Structure")
+        
+        # 清理material_id（去掉-mp后缀）
+        clean_material_id = material_id.split('-')[0] if '-' in material_id else material_id
+        
+        # 尝试多种图片URL格式
+        image_urls = [
+            f"https://next-gen.materialsproject.org/materials/{clean_material_id}/image",
+            f"https://legacy.materialsproject.org/materials/{clean_material_id}/image",
+            f"https://materialsproject.org/materials/{clean_material_id}/image"
+        ]
+        
+        image_found = False
+        
+        for image_url in image_urls:
+            try:
+                headers = {
+                    "X-API-KEY": api_key,
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                }
+                
+                response = requests.get(image_url, headers=headers, timeout=10)
+                
+                if response.status_code == 200 and response.content:
+                    # 成功获取图片
+                    image = Image.open(BytesIO(response.content))
+                    st.markdown(f"""
+                    <div class="crystal-image-container">
+                        <h4>Crystal Structure: {formula}</h4>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    st.image(image, caption=f"Crystal Structure: {formula}", use_column_width=True)
+                    image_found = True
+                    break
+                    
+            except Exception as img_error:
+                continue
+        
+        if not image_found:
+            # 如果所有图片URL都失败，显示占位图和链接
+            st.markdown(f"""
+            <div class="crystal-image-container">
+                <h4>Crystal Structure: {formula}</h4>
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                          padding: 60px 20px; border-radius: 8px; color: white; margin: 20px 0;">
+                    <h3>🔬 Crystal Structure</h3>
+                    <p><strong>{formula}</strong></p>
+                    <p>View detailed structure on Materials Project</p>
+                </div>
+                <p style="color: #666; margin-top: 10px;">
+                    The crystal structure image is available on Materials Project website
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # 添加查看详情链接 - 尝试多种URL格式
+        material_urls = [
+            f"https://next-gen.materialsproject.org/materials/{clean_material_id}",
+            f"https://legacy.materialsproject.org/materials/{clean_material_id}",
+            f"https://materialsproject.org/materials/{clean_material_id}"
+        ]
+        
+        st.markdown("""
+        <div style="text-align: center; margin: 15px 0;">
+            <p><strong>View Interactive Structure:</strong></p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        for i, url in enumerate(material_urls):
+            st.markdown(f"""
+            <div style="text-align: center; margin: 10px 0;">
+                <a href="{url}" target="_blank" style="
+                    display: inline-block;
+                    padding: 8px 16px;
+                    background-color: #1976d2;
+                    color: white;
+                    text-decoration: none;
+                    border-radius: 5px;
+                    font-weight: bold;
+                    font-size: 0.9em;
+                    margin: 5px;
+                ">
+                🔍 Link {i+1} - Materials Project
+                </a>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        return image_found
+        
+    except Exception as e:
+        st.error(f"Error displaying crystal structure: {str(e)}")
+        return False
+
+def analyze_structure_features(structure):
+    """分析晶体结构特征"""
+    try:
+        # 计算密度
+        density = structure.density
+        
+        # 判断结构类型
+        lattice_type = "unknown"
+        symmetry = "low"
+        
+        # 分析晶格参数判断对称性
+        a, b, c = structure.lattice.abc
+        alpha, beta, gamma = structure.lattice.angles
+        
+        # 判断立方晶系
+        if abs(a - b) < 0.1 and abs(b - c) < 0.1 and all(abs(angle - 90) < 1 for angle in [alpha, beta, gamma]):
+            lattice_type = "cubic"
+            symmetry = "high"
+        # 判断四方晶系
+        elif abs(a - b) < 0.1 and abs(alpha - 90) < 1 and abs(beta - 90) < 1 and abs(gamma - 90) < 1:
+            lattice_type = "tetragonal"
+            symmetry = "medium"
+        # 判断六方晶系
+        elif abs(a - b) < 0.1 and abs(alpha - 90) < 1 and abs(beta - 90) < 1 and abs(gamma - 120) < 1:
+            lattice_type = "hexagonal"
+            symmetry = "medium"
+        else:
+            lattice_type = "orthorhombic/triclinic"
+            symmetry = "low"
+        
+        return {
+            'density': density,
+            'structure_type': lattice_type,
+            'symmetry': symmetry
+        }
+        
+    except Exception as e:
+        return {
+            'density': 'N/A',
+            'structure_type': 'unknown',
+            'symmetry': 'unknown'
+        }
 
 # 材料特征计算函数
 def calculate_material_features(formula):
     """计算材料的组成特征"""
     try:
-        # 这里使用简化的特征计算
-        # 在实际应用中，您可以使用matminer或其他库
+        from matminer.featurizers.composition import (
+            ElementProperty, Meredig, Stoichiometry, IonProperty
+        )
+        from matminer.featurizers.conversions import StrToComposition, CompositionToOxidComposition
+
+        df = pd.DataFrame({'Formula': [formula]})
+        stc = StrToComposition()
+        df = stc.featurize_dataframe(df, 'Formula', ignore_errors=True)
+
+        if 'composition' not in df.columns or df['composition'].iloc[0] is None:
+            return {'Formula': formula}
+
         features = {'Formula': formula}
-        
-        # 添加一些模拟的特征值
-        features['MagpieData mean CovalentRadius'] = 1.5
-        features['MagpieData avg_dev SpaceGroupNumber'] = 2.3
-        features['0-norm'] = 8.7
-        features['MagpieData mean MeltingT'] = 1200.0
-        features['MagpieData avg_dev Column'] = 1.2
-        features['MagpieData mean NValence'] = 4.5
-        
+
+        # 元素属性特征
+        ep = ElementProperty.from_preset('magpie')
+        df = ep.featurize_dataframe(df, 'composition', ignore_errors=True)
+
+        # Meredig
+        mer = Meredig()
+        df = mer.featurize_dataframe(df, 'composition', ignore_errors=True)
+
+        # 化学计量特征
+        sto = Stoichiometry()
+        df = sto.featurize_dataframe(df, 'composition', ignore_errors=True)
+
+        # 离子特征
+        cto = CompositionToOxidComposition()
+        df = cto.featurize_dataframe(df, 'composition', ignore_errors=True)
+        ion = IonProperty()
+        df = ion.featurize_dataframe(df, 'composition_oxid', ignore_errors=True)
+
+        # 数值特征提取
+        numeric_columns = df.select_dtypes(include=[np.number]).columns
+        for col in numeric_columns:
+            val = df[col].iloc[0]
+            features[col] = float(val) if not pd.isna(val) else 0.0
+
         return features
 
     except Exception as e:
         st.warning(f"Feature calculation failed: {e}")
+        import traceback
+        print(traceback.format_exc())
         return {'Formula': formula}
 
 # 过滤特征 - 只显示指定的七个特征
@@ -328,29 +509,63 @@ if submit_button:
         else:
             with st.spinner("Processing material and making predictions..."):
                 try:
-                    # 显示晶体结构信息
-                    display_crystal_structure_section(formula_input, mp_api_key)
-                    
-                    # 如果提供了API密钥，尝试获取Materials Project信息
+                    # 首先尝试从Materials Project获取晶体结构
                     if mp_api_key and mp_api_key.strip():
-                        with st.spinner("Fetching information from Materials Project..."):
-                            mp_info, mp_error = get_materials_project_info_simple(formula_input, mp_api_key.strip())
-                            if mp_info and not mp_error:
-                                st.success("✅ Information retrieved from Materials Project")
+                        with st.spinner("Fetching crystal structure from Materials Project..."):
+                            # 修正化学公式
+                            corrected_formula = formula_input.replace('.', '').replace('L1', 'Li').replace('l', 'I').replace('3272', '3Zr2')
+                            
+                            mp_data, mp_error = get_materials_project_structure_simple(corrected_formula, mp_api_key)
+                            
+                            if mp_data and mp_error is None:
+                                st.success("✅ Crystal structure retrieved from Materials Project")
                                 
-                                # 显示Materials Project信息
-                                st.subheader("📊 Materials Project Data")
+                                # 显示材料信息
+                                st.subheader("📊 Crystal Structure Information")
                                 col1, col2 = st.columns(2)
+                                
                                 with col1:
-                                    st.write(f"**Material ID:** `{mp_info['material_id']}`")
-                                    st.write(f"**Formula:** {mp_info['formula_pretty']}")
-                                    if mp_info['spacegroup']:
-                                        st.write(f"**Space Group:** {mp_info['spacegroup'].get('symbol', 'N/A')}")
+                                    st.write(f"**Material ID:** `{mp_data['material_id']}`")
+                                    st.write(f"**Formula:** {mp_data['pretty_formula']}")
+                                    st.write(f"**Space Group:** {mp_data['spacegroup'].get('symbol', 'N/A')} ({mp_data['spacegroup'].get('number', 'N/A')})")
+                                    
                                 with col2:
-                                    if mp_info['density'] != 'N/A':
-                                        st.write(f"**Density:** {mp_info['density']:.2f} g/cm³")
-                                    if mp_info['formation_energy_per_atom'] != 'N/A':
-                                        st.write(f"**Formation Energy:** {mp_info['formation_energy_per_atom']:.3f} eV/atom")
+                                    if mp_data['density'] != 'N/A':
+                                        st.write(f"**Density:** {mp_data['density']:.2f} g/cm³")
+                                    else:
+                                        st.write(f"**Density:** N/A")
+                                    if mp_data['volume'] != 'N/A':
+                                        st.write(f"**Volume:** {mp_data['volume']:.2f} Å³")
+                                    else:
+                                        st.write(f"**Volume:** N/A")
+                                    if mp_data['formation_energy_per_atom'] != 'N/A':
+                                        st.write(f"**Formation Energy:** {mp_data['formation_energy_per_atom']:.3f} eV/atom")
+                                    else:
+                                        st.write(f"**Formation Energy:** N/A")
+                                
+                                # 分析结构特征
+                                structure_info = analyze_structure_features(mp_data['structure'])
+                                
+                                # 显示结构分析
+                                st.subheader("🔬 Structure Analysis")
+                                col3, col4 = st.columns(2)
+                                with col3:
+                                    st.write(f"**Structure Type:** {structure_info['structure_type'].capitalize()}")
+                                with col4:
+                                    st.write(f"**Symmetry:** {structure_info['symmetry'].capitalize()}")
+                                
+                                # 显示晶体结构图片和链接
+                                display_crystal_structure_image(
+                                    mp_data['material_id'], 
+                                    mp_data['pretty_formula'],
+                                    mp_api_key
+                                )
+                                
+                            else:
+                                st.warning(f"Could not retrieve crystal structure: {mp_error}")
+                                st.info("💡 The material might not exist in Materials Project database, or try a different formula")
+                    else:
+                        st.info("💡 Enter a Materials Project API key to view crystal structure information")
                     
                     # 计算材料特征
                     features = calculate_material_features(formula_input)
