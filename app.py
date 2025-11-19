@@ -51,39 +51,19 @@ st.markdown(
         font-size: 1.1em;
         border-radius: 10px;
     }
-    /* 减小指标卡片的字体大小 */
-    .stMetric {
-        font-size: 0.9em;
-    }
-    /* 减小特征提取成功信息的字体大小 */
-    .stWrite {
-        font-size: 0.9em;
-    }
-    /* 减小子标题的字体大小 */
-    h3 {
-        font-size: 1.2em;
-    }
-    /* 减小数据框的字体大小 */
-    .dataframe {
-        font-size: 0.8em;
-    }
-    /* 晶体结构显示样式 */
-    .crystal-structure {
+    /* 晶体结构图片样式 */
+    .crystal-image-container {
+        border: 2px solid #ddd;
+        border-radius: 10px;
+        padding: 20px;
+        background-color: white;
         margin: 20px 0;
         text-align: center;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
     }
-    .error-message {
-        background-color: #ffebee;
-        border: 1px solid #f44336;
-        border-radius: 5px;
-        padding: 10px;
-        margin: 10px 0;
-    }
-    .structure-container {
-        border: 1px solid #ddd;
-        border-radius: 10px;
-        padding: 15px;
-        background-color: white;
+    .crystal-image {
+        max-width: 100%;
+        border-radius: 8px;
         margin: 10px 0;
     }
     </style>
@@ -259,228 +239,91 @@ def get_materials_project_structure_simple(formula, api_key):
     except Exception as e:
         return None, f"Error accessing Materials Project: {str(e)}"
 
-def create_simple_structure_plot(structure, formula, material_id):
-    """创建简化的晶体结构3D图 - 修复颜色问题"""
+def display_crystal_structure_image(material_id, formula, api_key):
+    """直接显示Materials Project的晶体结构图片"""
     try:
-        # 获取晶格参数
-        lattice = structure.lattice
-        sites = structure.sites
+        st.subheader("🎯 Crystal Structure")
         
-        # 创建原子位置数据
-        x, y, z = [], [], []
-        colors, sizes, symbols, hover_texts = [], [], [], []
+        # 清理material_id（去掉-mp后缀）
+        clean_material_id = material_id.split('-')[0] if '-' in material_id else material_id
         
-        # 改进的原子颜色映射
-        color_map = {
-            'Li': '#CC80FF', 'La': '#70D4FF', 'Zr': '#4EACCE', 'O': '#FF0D0D',
-            'P': '#FF8000', 'S': '#FFFF30', 'Cl': '#1FF01F', 'Ge': '#668F8F',
-            'Y': '#94FFFF', 'F': '#90E050', 'Br': '#A62929', 'I': '#940094',
-            'Na': '#AB5CF2', 'K': '#8F40D4', 'Mg': '#8AFF00', 'Ca': '#3DFF00',
-            'Al': '#BFA6A6', 'Si': '#F0C8A0', 'Ti': '#BFC2C7', 'Fe': '#E06633'
-        }
+        # Materials Project的官方图片URL
+        image_url = f"https://next-gen.materialsproject.org/materials/{clean_material_id}/image"
         
-        # 原子大小映射
-        size_map = {
-            'Li': 10, 'La': 18, 'Zr': 14, 'O': 12,
-            'P': 13, 'S': 12, 'Cl': 12, 'Ge': 14,
-            'Y': 14, 'F': 10, 'Br': 13, 'I': 15,
-            'Na': 12, 'K': 14, 'Mg': 13, 'Ca': 14,
-            'Al': 13, 'Si': 13, 'Ti': 14, 'Fe': 14
-        }
+        # 尝试下载并显示图片
+        try:
+            headers = {
+                "X-API-KEY": api_key,
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+            
+            response = requests.get(image_url, headers=headers, timeout=10)
+            
+            if response.status_code == 200 and response.content:
+                # 成功获取图片
+                image = Image.open(BytesIO(response.content))
+                st.markdown(f"""
+                <div class="crystal-image-container">
+                    <h4>Crystal Structure: {formula}</h4>
+                </div>
+                """, unsafe_allow_html=True)
+                st.image(image, caption=f"Crystal Structure: {formula}", use_column_width=True)
+                return True
+            else:
+                # 如果图片获取失败，显示占位图和链接
+                st.markdown(f"""
+                <div class="crystal-image-container">
+                    <h4>Crystal Structure: {formula}</h4>
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                              padding: 60px 20px; border-radius: 8px; color: white; margin: 20px 0;">
+                        <h3>🔬 Crystal Structure</h3>
+                        <p><strong>{formula}</strong></p>
+                        <p>View detailed structure on Materials Project</p>
+                    </div>
+                    <p style="color: #666; margin-top: 10px;">
+                        The crystal structure image is available on Materials Project
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+                return False
+                
+        except Exception as img_error:
+            # 如果图片下载失败，显示占位图
+            st.markdown(f"""
+            <div class="crystal-image-container">
+                <h4>Crystal Structure: {formula}</h4>
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                          padding: 60px 20px; border-radius: 8px; color: white; margin: 20px 0;">
+                    <h3>🔬 Crystal Structure</h3>
+                    <p><strong>{formula}</strong></p>
+                    <p>View detailed structure on Materials Project</p>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            return False
         
-        for i, site in enumerate(sites):
-            x.append(site.coords[0])
-            y.append(site.coords[1])
-            z.append(site.coords[2])
-            element = site.species_string
-            colors.append(color_map.get(element, '#CCCCCC'))
-            sizes.append(size_map.get(element, 12))
-            symbols.append(element)
-            hover_texts.append(f"{element} atom<br>Position: ({site.coords[0]:.2f}, {site.coords[1]:.2f}, {site.coords[2]:.2f})")
-        
-        # 创建原子轨迹
-        atom_trace = go.Scatter3d(
-            x=x, y=y, z=z,
-            mode='markers+text',
-            marker=dict(
-                size=sizes,
-                color=colors,
-                opacity=0.95,
-                line=dict(width=2, color='darkgray')
-            ),
-            text=symbols,
-            textposition="middle center",
-            textfont=dict(size=12, color='black', family="Arial"),
-            hoverinfo='text',
-            hovertext=hover_texts,
-            name='Atoms'
-        )
-        
-        # 创建晶格线 - 修复颜色问题
-        # 分别创建三个晶格向量的轨迹，避免None值问题
-        lattice_traces = []
-        
-        # 晶格向量
-        origin = [0, 0, 0]
-        a_vec = lattice.matrix[0]
-        b_vec = lattice.matrix[1]
-        c_vec = lattice.matrix[2]
-        
-        # a轴 - 红色
-        lattice_traces.append(go.Scatter3d(
-            x=[origin[0], a_vec[0]],
-            y=[origin[1], a_vec[1]],
-            z=[origin[2], a_vec[2]],
-            mode='lines',
-            line=dict(color='red', width=6),
-            name='a-axis',
-            hoverinfo='none',
-            showlegend=False
-        ))
-        
-        # b轴 - 绿色
-        lattice_traces.append(go.Scatter3d(
-            x=[origin[0], b_vec[0]],
-            y=[origin[1], b_vec[1]],
-            z=[origin[2], b_vec[2]],
-            mode='lines',
-            line=dict(color='green', width=6),
-            name='b-axis',
-            hoverinfo='none',
-            showlegend=False
-        ))
-        
-        # c轴 - 蓝色
-        lattice_traces.append(go.Scatter3d(
-            x=[origin[0], c_vec[0]],
-            y=[origin[1], c_vec[1]],
-            z=[origin[2], c_vec[2]],
-            mode='lines',
-            line=dict(color='blue', width=6),
-            name='c-axis',
-            hoverinfo='none',
-            showlegend=False
-        ))
-        
-        # 创建图形 - 将所有轨迹放在一起
-        all_traces = [atom_trace] + lattice_traces
-        
-        fig = go.Figure(data=all_traces)
-        
-        # 更新布局
-        fig.update_layout(
-            title=dict(
-                text=f"Crystal Structure: {formula}",
-                x=0.5,
-                xanchor='center',
-                font=dict(size=16)
-            ),
-            scene=dict(
-                xaxis_title='X (Å)',
-                yaxis_title='Y (Å)',
-                zaxis_title='Z (Å)',
-                aspectmode='data',
-                camera=dict(
-                    eye=dict(x=1.5, y=1.5, z=1.5)
-                ),
-                bgcolor='white'
-            ),
-            width=700,
-            height=600,
-            margin=dict(l=20, r=20, b=20, t=60),
-            showlegend=False
-        )
-        
-        # 添加坐标轴样式
-        fig.update_scenes(
-            xaxis=dict(
-                backgroundcolor="white", 
-                gridcolor="lightgray", 
-                showbackground=True,
-                showgrid=True
-            ),
-            yaxis=dict(
-                backgroundcolor="white", 
-                gridcolor="lightgray", 
-                showbackground=True,
-                showgrid=True
-            ),
-            zaxis=dict(
-                backgroundcolor="white", 
-                gridcolor="lightgray", 
-                showbackground=True,
-                showgrid=True
-            )
-        )
-        
-        return fig
+        # 添加查看详情链接
+        material_url = f"https://next-gen.materialsproject.org/materials/{clean_material_id}"
+        st.markdown(f"""
+        <div style="text-align: center; margin: 15px 0;">
+            <a href="{material_url}" target="_blank" style="
+                display: inline-block;
+                padding: 10px 20px;
+                background-color: #1976d2;
+                color: white;
+                text-decoration: none;
+                border-radius: 5px;
+                font-weight: bold;
+                font-size: 0.9em;
+            ">
+            🔍 View Interactive Structure on Materials Project
+            </a>
+        </div>
+        """, unsafe_allow_html=True)
         
     except Exception as e:
-        st.error(f"Error creating structure plot: {str(e)}")
-        import traceback
-        st.error(f"Detailed error: {traceback.format_exc()}")
-        return None
-
-def create_basic_structure_plot(structure, formula, material_id):
-    """创建最基本的晶体结构图 - 备用方法"""
-    try:
-        # 获取晶格参数
-        lattice = structure.lattice
-        sites = structure.sites
-        
-        # 创建原子位置数据
-        x, y, z = [], [], []
-        colors, sizes, symbols = [], [], []
-        
-        # 简单的原子颜色映射
-        color_map = {
-            'Li': 'purple', 'La': 'green', 'Zr': 'blue', 'O': 'red',
-            'P': 'orange', 'S': 'yellow', 'Cl': 'lime', 'Ge': 'gray'
-        }
-        
-        for site in sites:
-            x.append(site.coords[0])
-            y.append(site.coords[1])
-            z.append(site.coords[2])
-            element = site.species_string
-            colors.append(color_map.get(element, 'black'))
-            sizes.append(15)
-            symbols.append(element)
-        
-        # 创建原子轨迹
-        atom_trace = go.Scatter3d(
-            x=x, y=y, z=z,
-            mode='markers+text',
-            marker=dict(
-                size=sizes,
-                color=colors,
-                opacity=0.8
-            ),
-            text=symbols,
-            textposition="middle center",
-            name='Atoms'
-        )
-        
-        # 创建图形
-        fig = go.Figure(data=[atom_trace])
-        
-        # 简单布局
-        fig.update_layout(
-            title=f"Crystal Structure: {formula}",
-            scene=dict(
-                xaxis_title='X (Å)',
-                yaxis_title='Y (Å)',
-                zaxis_title='Z (Å)'
-            ),
-            width=600,
-            height=500
-        )
-        
-        return fig
-        
-    except Exception as e:
-        st.error(f"Error creating basic structure plot: {str(e)}")
-        return None
+        st.error(f"Error displaying crystal structure: {str(e)}")
+        return False
 
 def analyze_structure_features(structure):
     """分析晶体结构特征"""
@@ -581,7 +424,6 @@ def filter_selected_features(features_dict, selected_descriptors, temperature):
     filtered_features = {}
     
     # 添加温度特征
-    
     filtered_features['Temp'] = float(temperature)
     
     # 添加选定的七个特征
@@ -596,35 +438,6 @@ def filter_selected_features(features_dict, selected_descriptors, temperature):
             filtered_features[feature_name] = 0.0
     
     return filtered_features
-
-# 自动匹配模型特征
-def align_features_with_model(features_dict, predictor, temperature, formula):
-    if predictor is None:
-        return pd.DataFrame([features_dict])
-
-    try:
-        model_features = predictor.feature_metadata.get_features()
-    except Exception:
-        model_features = []
-
-    aligned = {}
-    lower_map = {k.lower(): k for k in features_dict.keys()}
-
-    for feat in model_features:
-        f_low = feat.lower()
-        if feat in features_dict:
-            aligned[feat] = features_dict[feat]
-        elif f_low in lower_map:
-            aligned[feat] = features_dict[lower_map[f_low]]
-        elif f_low in ['temp', 'temperature', 'temperature_k']:
-            aligned[feat] = temperature
-        elif f_low in ['formula']:
-            aligned[feat] = formula
-      
-        else:
-            aligned[feat] = 0.0
-
-    return pd.DataFrame([aligned])
 
 # 如果点击提交按钮
 if submit_button:
@@ -685,39 +498,12 @@ if submit_button:
                                 with col4:
                                     st.write(f"**Symmetry:** {structure_info['symmetry'].capitalize()}")
                                 
-                                # 创建并显示3D结构图
-                                st.subheader("🎯 3D Crystal Structure Visualization")
-                                
-                                # 首先尝试使用简单方法
-                                fig = create_simple_structure_plot(
-                                    mp_data['structure'], 
-                                    mp_data['pretty_formula'], 
-                                    mp_data['material_id']
+                                # 直接显示晶体结构图片
+                                display_crystal_structure_image(
+                                    mp_data['material_id'], 
+                                    mp_data['pretty_formula'],
+                                    mp_api_key
                                 )
-                                
-                                if fig is None:
-                                    # 如果简单方法失败，使用最基本的方法
-                                    st.warning("Using basic visualization method...")
-                                    fig = create_basic_structure_plot(
-                                        mp_data['structure'], 
-                                        mp_data['pretty_formula'], 
-                                        mp_data['material_id']
-                                    )
-                                
-                                if fig:
-                                    st.plotly_chart(fig, use_container_width=True)
-                                    
-                                    # 添加交互说明
-                                    st.info("""
-                                    **💡 Interactive Controls:**
-                                    - **Rotate:** Click and drag to rotate the structure
-                                    - **Zoom:** Use mouse wheel to zoom in/out
-                                    - **Pan:** Hold Shift and drag to pan
-                                    - **Reset:** Double-click to reset view
-                                    - **Hover:** Hover over atoms to see details
-                                    """)
-                                else:
-                                    st.error("Failed to create structure visualization")
                                 
                             else:
                                 st.warning(f"Could not retrieve crystal structure: {mp_error}")
@@ -739,11 +525,10 @@ if submit_button:
                     if features:
                         # 创建输入数据
                         input_data = {
-                             "Formula": [formula_input],
-                       
+                            "Formula": [formula_input],
                             "Temp": [temperature],
-                           }
-                     
+                        }
+                    
                         # 添加数值特征
                         numeric_features = {}
                         for feature_name in required_descriptors:
@@ -784,7 +569,7 @@ if submit_button:
                         # 显示预测结果
                         st.write("Prediction Results (Essential Models):")
                         st.markdown(
-                             "**Note:** WeightedEnsemble_L2 is a meta-model combining predictions from other models.")
+                            "**Note:** WeightedEnsemble_L2 is a meta-model combining predictions from other models.")
                         results_df = pd.DataFrame(predictions_dict)
                         st.dataframe(results_df.iloc[:1,:])
                     
@@ -797,10 +582,3 @@ if submit_button:
                     
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
-
-
-
-
-
-
-
