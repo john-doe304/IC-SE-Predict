@@ -393,44 +393,45 @@ if submit_button:
                     input_df = pd.DataFrame(input_data)
                   
                     try:
-                       # 使用缓存的模型加载方式
-                       predictor = load_predictor()
+                        # 使用缓存的模型加载方式
+                        predictor = load_predictor()
                     
-                       # 只使用最关键的模型进行预测，减少内存占用
-                       essential_models = ['CatBoost',
+                        # 只使用最关键的模型进行预测，减少内存占用
+                        essential_models = ['CatBoost',
                                           'ExtraTreesMSE',
                                           'LightGBM',
                                           'KNeighborsDist',
                                           'WeightedEnsemble_L2',
                                           'XGBoost']
                                         
-                       predict_df = input_df.copy()
-                       predictions_dict = {}
+                        predict_df = input_df.copy()
+                        predictions_dict = {}
                     
-                       for model in essential_models:
-                           try:
-                               predictions = predictor.predict(predict_df, model=model)
-                               predictions_dict[model] = predictions
-                           except Exception as model_error:
-                               st.warning(f"Model {model} prediction failed: {str(model_error)}")
-                               predictions_dict[model] = "Error"
+                        for model in essential_models:
+                            try:
+                                predictions = predictor.predict(predict_df, model=model)
+                                predictions_dict[model] = predictions
+                            except Exception as model_error:
+                                st.warning(f"Model {model} prediction failed: {str(model_error)}")
+                                predictions_dict[model] = "Error"
 
-                       # 显示预测结果
-                       st.write("Prediction Results (Essential Models):")
-                       st.markdown(
-                         "**Note:** WeightedEnsemble_L2 is a meta-model combining predictions from other models.")
-                       results_df = pd.DataFrame(predictions_dict)
-                       st.dataframe(results_df.iloc[:1,:])
+                        # 显示预测结果
+                        st.write("Prediction Results (Essential Models):")
+                        st.markdown(
+                          "**Note:** WeightedEnsemble_L2 is a meta-model combining predictions from other models.")
+                        results_df = pd.DataFrame(predictions_dict)
+                        st.dataframe(results_df.iloc[:1,:])
                     
-                       # 主动释放内存
-                       del predictor
-                       gc.collect()
+                        # 主动释放内存
+                        del predictor
+                        gc.collect()
 
-                   except Exception as e:
-                       st.error(f"Model loading failed: {str(e)}")
+                    except Exception as e:
+                        st.error(f"Model loading failed: {str(e)}")
 
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
+
 
 
 
