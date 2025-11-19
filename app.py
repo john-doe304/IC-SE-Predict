@@ -392,14 +392,6 @@ if submit_button:
                     input_data['Formula'] = [formula_input]
                     input_df = pd.DataFrame(input_data)
                   
-                    # 加载模型并预测
-                    try:
-                        predictor = load_predictor()
-                        
-                        if predictor is not None:
-                            st.subheader("Prediction Results")
-                            
-                    # 加载模型并预测
                     try:
                        # 使用缓存的模型加载方式
                        predictor = load_predictor()
@@ -435,22 +427,5 @@ if submit_button:
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
 
-# 侧边栏信息
-with st.sidebar:
-    st.markdown("### ℹ️ About")
-    st.markdown("""
-    This app predicts ionic conductivity of solid electrolyte materials.
-    
-    **Current Mode:** Simplified deployment
-    - Basic structure information
-    - Example predictions
-    - External 3D structure links
-    
-    **Note:** Full functionality requires proper dependency resolution.
-    """)
-    
-    st.markdown("### 🔧 Status")
-    st.warning("Running in simplified mode")
-    st.info("3D visualization: External links only")
 
 
