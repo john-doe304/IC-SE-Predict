@@ -9,9 +9,9 @@ Formula: L17La3Zr2O12
 
 
 
-Density: 5.01 g/cm³  
+Density: 5.01 g/cm3  
 
-Volume: 1112.63 Å³  
+Volume: 1112.63 Å3
 
 Formation Energy: -7.484 eV/atom  
 
@@ -638,4 +638,5 @@ if submit_button:
                     
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
+
 
