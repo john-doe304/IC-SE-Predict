@@ -412,20 +412,21 @@ if submit_button:
                                     'Log(Predicted Ionic Conductivity (S/cm))': prediction
                                 })
                             
-                            results_df = pd.DataFrame(results_data)
-                            st.dataframe(results_df)
+                       results_df = pd.DataFrame(results_data)
+                       st.dataframe(results_df)
                             
-                            st.info("💡 These are example predictions. For accurate results, ensure all dependencies are properly installed.")
+                       st.info("💡 These are example predictions. For accurate results, ensure all dependencies are properly installed.")
                             
-                        else:
+                       else:
                             st.error("Model not available in current environment")
                             
-                    except Exception as e:
+                        except Exception as e:
                         st.error(f"Prediction failed: {str(e)}")
                         st.info("💡 This is likely due to missing dependencies. Check the requirements.txt file.")
                     
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
+
 
 
 
