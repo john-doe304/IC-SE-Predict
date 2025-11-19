@@ -15,6 +15,35 @@ import gc
 import re
 from tqdm import tqdm 
 import numpy as np
+# 修复 numpy 兼容性问题
+try:
+    from numpy import product
+except ImportError:
+    # 在较新版本的numpy中，product已被移除，使用prod代替
+    from numpy import prod as product
+
+import sys
+import os
+
+# 3D可视化设置 - 延迟导入以避免启动时冲突
+_3D_AVAILABLE = False
+py3Dmol = None
+showmol = None
+
+def init_3d_libraries():
+    """延迟初始化3D库"""
+    global _3D_AVAILABLE, py3Dmol, showmol
+    try:
+        import py3Dmol as _py3Dmol
+        from stmol import showmol as _showmol
+        py3Dmol = _py3Dmol
+        showmol = _showmol
+        _3D_AVAILABLE = True
+        return True
+    except ImportError as e:
+        _3D_AVAILABLE = False
+        st.sidebar.warning(f"3D visualization libraries not available: {str(e)}")
+        return False
 from pymatgen.core import Composition, Structure
 from pymatgen.ext.matproj import MPRester
 import plotly.graph_objects as go
@@ -655,4 +684,5 @@ if submit_button:
                     
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
+
 
