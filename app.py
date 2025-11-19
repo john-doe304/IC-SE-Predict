@@ -22,8 +22,6 @@ import io
 import requests
 from PIL import Image
 import base64
-import py3Dmol
-from stmol import showmol
 import plotly.express as px
 
 # 添加 CSS 样式
@@ -64,14 +62,22 @@ st.markdown(
         text-align: center;
         box-shadow: 0 4px 8px rgba(0,0,0,0.1);
     }
-    /* 3D查看器样式 */
-    .mol-container {
-        width: 100%;
-        height: 400px;
-        position: relative;
-        border: 1px solid #ccc;
-        border-radius: 8px;
-        margin: 10px 0;
+    .database-link {
+        display: inline-block;
+        margin: 5px;
+        padding: 8px 15px;
+        background-color: #1976d2;
+        color: white;
+        text-decoration: none;
+        border-radius: 5px;
+        font-size: 0.9em;
+    }
+    .structure-diagram {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 40px 20px;
+        border-radius: 10px;
+        color: white;
+        margin: 20px 0;
     }
     </style>
     """,
@@ -246,154 +252,210 @@ def get_materials_project_structure_simple(formula, api_key):
     except Exception as e:
         return None, f"Error accessing Materials Project: {str(e)}"
 
-def create_3d_structure_viewer(structure):
-    """使用py3Dmol创建3D晶体结构查看器"""
+def create_lattice_visualization(structure):
+    """创建晶格参数可视化图表"""
     try:
-        # 将结构转换为CIF格式
-        cif_string = structure.to(fmt="cif")
-        
-        # 创建3D查看器
-        viewer = py3Dmol.view(width=400, height=300)
-        viewer.addModel(cif_string, 'cif')
-        viewer.setStyle({'stick': {'radius': 0.15}, 'sphere': {'radius': 0.5}})
-        viewer.zoomTo()
-        viewer.setBackgroundColor('0xeeeeee')
-        
-        return viewer
-        
-    except Exception as e:
-        st.error(f"Error creating 3D viewer: {str(e)}")
-        return None
-
-def display_structure_visualization(mp_data, api_key):
-    """显示晶体结构可视化"""
-    try:
-        st.subheader("🎯 Crystal Structure Visualization")
-        
-        # 创建选项卡：3D查看器、外部链接、结构信息
-        tab1, tab2, tab3 = st.tabs(["3D Structure Viewer", "External Links", "Structure Info"])
-        
-        with tab1:
-            st.markdown("### Interactive 3D Structure")
-            
-            # 创建3D查看器
-            viewer = create_3d_structure_viewer(mp_data['structure'])
-            if viewer:
-                # 在Streamlit中显示3D查看器
-                showmol(viewer, height=400, width=600)
-                
-                # 添加查看控制说明
-                st.markdown("""
-                **Viewer Controls:**
-                - **Rotate:** Click and drag
-                - **Zoom:** Scroll mouse wheel
-                - **Pan:** Shift + Click and drag
-                - **Reset:** Double click
-                """)
-            else:
-                st.warning("3D viewer could not be initialized. Showing structure information instead.")
-                display_structure_info(mp_data)
-        
-        with tab2:
-            st.markdown("### View on External Databases")
-            
-            material_id = mp_data['material_id']
-            clean_material_id = material_id.split('-')[0] if '-' in material_id else material_id
-            formula = mp_data['pretty_formula']
-            
-            # Materials Project 链接
-            st.markdown("#### Materials Project")
-            mp_urls = [
-                f"https://next-gen.materialsproject.org/materials/{clean_material_id}",
-                f"https://legacy.materialsproject.org/materials/{clean_material_id}",
-            ]
-            
-            for i, url in enumerate(mp_urls):
-                st.markdown(f"[🔗 Materials Project Link {i+1}]({url})")
-            
-            # Crystallography Open Database 链接
-            st.markdown("#### Crystallography Open Database (COD)")
-            cod_url = f"https://www.crystallography.net/cod/search?formula={formula}"
-            st.markdown(f"[🔗 Search COD for {formula}]({cod_url})")
-            
-            # Springer Materials 链接
-            st.markdown("#### Springer Materials")
-            springer_url = f"https://materials.springer.com/search?searchTerm={formula}"
-            st.markdown(f"[🔗 Search Springer Materials]({springer_url})")
-            
-        with tab3:
-            display_structure_info(mp_data)
-            
-    except Exception as e:
-        st.error(f"Error displaying structure visualization: {str(e)}")
-
-def display_structure_info(mp_data):
-    """显示结构信息"""
-    st.markdown("### Structure Information")
-    
-    # 分析结构特征
-    structure_info = analyze_structure_features(mp_data['structure'])
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.write(f"**Material ID:** `{mp_data['material_id']}`")
-        st.write(f"**Formula:** {mp_data['pretty_formula']}")
-        st.write(f"**Space Group:** {mp_data['spacegroup'].get('symbol', 'N/A')} ({mp_data['spacegroup'].get('number', 'N/A')})")
-        st.write(f"**Structure Type:** {structure_info['structure_type'].capitalize()}")
-        
-    with col2:
-        if mp_data['density'] != 'N/A':
-            st.write(f"**Density:** {mp_data['density']:.2f} g/cm³")
-        else:
-            st.write(f"**Density:** N/A")
-        if mp_data['volume'] != 'N/A':
-            st.write(f"**Volume:** {mp_data['volume']:.2f} Å³")
-        else:
-            st.write(f"**Volume:** N/A")
-        if mp_data['formation_energy_per_atom'] != 'N/A':
-            st.write(f"**Formation Energy:** {mp_data['formation_energy_per_atom']:.3f} eV/atom")
-        else:
-            st.write(f"**Formation Energy:** N/A")
-        st.write(f"**Symmetry:** {structure_info['symmetry'].capitalize()}")
-
-def create_static_structure_plot(structure):
-    """创建静态晶体结构图"""
-    try:
-        # 使用plotly创建晶格参数可视化
+        # 获取晶格参数
         a, b, c = structure.lattice.abc
         alpha, beta, gamma = structure.lattice.angles
         
+        # 创建晶格参数比较图
         fig = go.Figure()
         
-        # 添加晶格参数信息
-        fig.add_annotation(
-            text=f"Lattice Parameters:<br>a={a:.2f}Å, b={b:.2f}Å, c={c:.2f}Å<br>"
-                 f"α={alpha:.1f}°, β={beta:.1f}°, γ={gamma:.1f}°<br>"
-                 f"Volume: {structure.volume:.2f}Å³<br>"
-                 f"Density: {structure.density:.2f} g/cm³",
-            x=0.5, y=0.5, xref="paper", yref="paper",
-            showarrow=False,
-            font=dict(size=12),
-            bgcolor="white",
-            bordercolor="black",
-            borderwidth=1
-        )
+        # 添加晶格长度
+        fig.add_trace(go.Bar(
+            x=['a', 'b', 'c'],
+            y=[a, b, c],
+            name='Lattice Length (Å)',
+            marker_color='lightblue'
+        ))
         
         fig.update_layout(
-            title="Crystal Lattice Parameters",
-            xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
-            yaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
-            showlegend=False,
-            height=300,
-            margin=dict(l=20, r=20, t=40, b=20),
-            paper_bgcolor='lightgray'
+            title='Lattice Parameters',
+            xaxis_title='Axis',
+            yaxis_title='Length (Å)',
+            showlegend=False
         )
         
         return fig
         
     except Exception as e:
-        st.error(f"Error creating structure plot: {str(e)}")
         return None
+
+def create_crystal_system_diagram(structure_type, symmetry):
+    """创建晶体系统示意图"""
+    # 基于结构类型和对称性创建描述性图表
+    colors = {
+        'high': '#00C853',    # 绿色
+        'medium': '#FF9800',  # 橙色
+        'low': '#F44336',     # 红色
+        'unknown': '#9E9E9E'  # 灰色
+    }
+    
+    color = colors.get(symmetry.lower(), '#9E9E9E')
+    
+    fig = go.Figure()
+    
+    # 添加一个简单的示意图
+    fig.add_annotation(
+        text=f"<b>{structure_type.upper()}</b><br>Symmetry: {symmetry.upper()}",
+        x=0.5, y=0.5, xref="paper", yref="paper",
+        showarrow=False,
+        font=dict(size=16, color="white"),
+        bgcolor=color,
+        bordercolor="black",
+        borderwidth=2,
+        borderpad=10
+    )
+    
+    fig.update_layout(
+        title="Crystal System",
+        xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
+        yaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
+        showlegend=False,
+        height=200,
+        margin=dict(l=20, r=20, t=40, b=20),
+        paper_bgcolor='lightgray'
+    )
+    
+    return fig
+
+def display_database_links(formula, material_id=None):
+    """显示多个数据库的链接"""
+    st.markdown("### 🔗 View Crystal Structure on External Databases")
+    
+    # 清理material_id
+    if material_id:
+        clean_material_id = material_id.split('-')[0] if '-' in material_id else material_id
+    else:
+        clean_material_id = ""
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### Primary Databases")
+        
+        # Materials Project 链接
+        if material_id:
+            mp_links = [
+                f"https://next-gen.materialsproject.org/materials/{clean_material_id}",
+                f"https://legacy.materialsproject.org/materials/{clean_material_id}",
+            ]
+            for i, url in enumerate(mp_links):
+                st.markdown(f"""
+                <a href="{url}" target="_blank" class="database-link">
+                🗳️ Materials Project {i+1}
+                </a>
+                """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <a href="https://next-gen.materialsproject.org/search?formula={formula}" target="_blank" class="database-link">
+            🔍 Search Materials Project
+            </a>
+            """, unsafe_allow_html=True)
+        
+        # Crystallography Open Database
+        cod_url = f"https://www.crystallography.net/cod/search?formula={formula}"
+        st.markdown(f"""
+        <a href="{cod_url}" target="_blank" class="database-link">
+        📊 Crystallography Open Database
+        </a>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("#### Additional Resources")
+        
+        # Springer Materials
+        springer_url = f"https://materials.springer.com/search?searchTerm={formula}"
+        st.markdown(f"""
+        <a href="{springer_url}" target="_blank" class="database-link">
+        📚 Springer Materials
+        </a>
+        """, unsafe_allow_html=True)
+        
+        # AFLOW
+        aflow_url = f"http://aflow.org/search/?keywords={formula}"
+        st.markdown(f"""
+        <a href="{aflow_url}" target="_blank" class="database-link">
+        🔬 AFLOW Database
+        </a>
+        """, unsafe_allow_html=True)
+        
+        # OQMD
+        oqmd_url = f"http://oqmd.org/search?filter={formula}"
+        st.markdown(f"""
+        <a href="{oqmd_url}" target="_blank" class="database-link">
+        💎 OQMD Database
+        </a>
+        """, unsafe_allow_html=True)
+
+def display_structure_analysis(mp_data):
+    """显示结构分析信息"""
+    st.subheader("🔬 Crystal Structure Analysis")
+    
+    # 分析结构特征
+    structure_info = analyze_structure_features(mp_data['structure'])
+    
+    # 创建两列布局
+    col1, col2, col3 = st.columns([2, 2, 1])
+    
+    with col1:
+        st.markdown("#### Basic Information")
+        st.write(f"**Material ID:** `{mp_data['material_id']}`")
+        st.write(f"**Formula:** {mp_data['pretty_formula']}")
+        st.write(f"**Space Group:** {mp_data['spacegroup'].get('symbol', 'N/A')} ({mp_data['spacegroup'].get('number', 'N/A')})")
+    
+    with col2:
+        st.markdown("#### Physical Properties")
+        if mp_data['density'] != 'N/A':
+            st.write(f"**Density:** {mp_data['density']:.2f} g/cm³")
+        if mp_data['volume'] != 'N/A':
+            st.write(f"**Volume:** {mp_data['volume']:.2f} Å³")
+        if mp_data['formation_energy_per_atom'] != 'N/A':
+            st.write(f"**Formation Energy:** {mp_data['formation_energy_per_atom']:.3f} eV/atom")
+    
+    with col3:
+        st.markdown("#### Structure Type")
+        st.write(f"**{structure_info['structure_type'].upper()}**")
+        st.write(f"**Symmetry:** {structure_info['symmetry'].upper()}")
+    
+    # 显示可视化图表
+    st.markdown("---")
+    st.markdown("#### 📐 Structure Visualization")
+    
+    viz_col1, viz_col2 = st.columns(2)
+    
+    with viz_col1:
+        # 晶格参数图
+        lattice_fig = create_lattice_visualization(mp_data['structure'])
+        if lattice_fig:
+            st.plotly_chart(lattice_fig, use_container_width=True)
+        else:
+            st.info("Lattice parameters visualization")
+    
+    with viz_col2:
+        # 晶体系统图
+        system_fig = create_crystal_system_diagram(
+            structure_info['structure_type'], 
+            structure_info['symmetry']
+        )
+        st.plotly_chart(system_fig, use_container_width=True)
+    
+    # 显示详细晶格信息
+    with st.expander("📋 Detailed Lattice Parameters"):
+        a, b, c = mp_data['structure'].lattice.abc
+        alpha, beta, gamma = mp_data['structure'].lattice.angles
+        
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            st.metric("a (Å)", f"{a:.3f}")
+            st.metric("α (°)", f"{alpha:.2f}")
+        with col_b:
+            st.metric("b (Å)", f"{b:.3f}")
+            st.metric("β (°)", f"{beta:.2f}")
+        with col_c:
+            st.metric("c (Å)", f"{c:.3f}")
+            st.metric("γ (°)", f"{gamma:.2f}")
 
 def analyze_structure_features(structure):
     """分析晶体结构特征"""
@@ -534,24 +596,24 @@ if submit_button:
                             if mp_data and mp_error is None:
                                 st.success("✅ Crystal structure retrieved from Materials Project")
                                 
-                                # 显示结构可视化
-                                display_structure_visualization(mp_data, mp_api_key)
+                                # 显示结构分析
+                                display_structure_analysis(mp_data)
+                                
+                                # 显示数据库链接
+                                display_database_links(
+                                    mp_data['pretty_formula'], 
+                                    mp_data['material_id']
+                                )
                                 
                             else:
                                 st.warning(f"Could not retrieve crystal structure: {mp_error}")
-                                # 即使没有获取到结构，也显示基本信息
-                                st.info("💡 The material might not exist in Materials Project database")
-                                # 显示外部数据库链接
-                                st.subheader("🔗 Search on External Databases")
-                                formula = formula_input
-                                cod_url = f"https://www.crystallography.net/cod/search?formula={formula}"
-                                springer_url = f"https://materials.springer.com/search?searchTerm={formula}"
-                                
-                                st.markdown(f"- [Crystallography Open Database (COD)]({cod_url})")
-                                st.markdown(f"- [Springer Materials]({springer_url})")
-                                st.markdown(f"- [Materials Project Search](https://next-gen.materialsproject.org/search)")
+                                # 显示通用数据库链接
+                                st.info("💡 You can search for this material on the following databases:")
+                                display_database_links(formula_input)
                     else:
-                        st.info("💡 Enter a Materials Project API key to view crystal structure information")
+                        st.info("💡 Enter a Materials Project API key to view detailed crystal structure information")
+                        # 即使没有API密钥，也显示数据库链接
+                        display_database_links(formula_input)
                     
                     # 计算材料特征
                     features = calculate_material_features(formula_input)
