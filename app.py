@@ -406,7 +406,7 @@ if submit_button:
                                         
                        predict_df = input_df.copy()
                        predictions_dict = {}
-                            for model, prediction in example_predictions.items():
+                       for model, prediction in example_predictions.items():
                                 results_data.append({
                                     'Model': model,
                                     'Log(Predicted Ionic Conductivity (S/cm))': prediction
@@ -426,6 +426,7 @@ if submit_button:
                     
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
+
 
 
 
