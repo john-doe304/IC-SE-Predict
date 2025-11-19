@@ -525,7 +525,106 @@ def analyze_structure_features(structure):
             'symmetry': 'unknown'
         }
 
-# 材料特征计算函数和其他函数保持不变...
+# 材料特征计算函数
+def calculate_material_features(formula):
+    """计算材料的组成特征"""
+    try:
+        from matminer.featurizers.composition import (
+            ElementProperty, Meredig, Stoichiometry, IonProperty
+        )
+        from matminer.featurizers.conversions import StrToComposition, CompositionToOxidComposition
+
+        df = pd.DataFrame({'Formula': [formula]})
+        stc = StrToComposition()
+        df = stc.featurize_dataframe(df, 'Formula', ignore_errors=True)
+
+        if 'composition' not in df.columns or df['composition'].iloc[0] is None:
+            return {'Formula': formula}
+
+        features = {'Formula': formula}
+
+        # 元素属性特征
+        ep = ElementProperty.from_preset('magpie')
+        df = ep.featurize_dataframe(df, 'composition', ignore_errors=True)
+
+        # Meredig
+        mer = Meredig()
+        df = mer.featurize_dataframe(df, 'composition', ignore_errors=True)
+
+        # 化学计量特征
+        sto = Stoichiometry()
+        df = sto.featurize_dataframe(df, 'composition', ignore_errors=True)
+
+        # 离子特征
+        cto = CompositionToOxidComposition()
+        df = cto.featurize_dataframe(df, 'composition', ignore_errors=True)
+        ion = IonProperty()
+        df = ion.featurize_dataframe(df, 'composition_oxid', ignore_errors=True)
+
+        # 数值特征提取
+        numeric_columns = df.select_dtypes(include=[np.number]).columns
+        for col in numeric_columns:
+            val = df[col].iloc[0]
+            features[col] = float(val) if not pd.isna(val) else 0.0
+
+        return features
+
+    except Exception as e:
+        st.warning(f"Feature calculation failed: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return {'Formula': formula}
+
+# 过滤特征 - 只显示指定的七个特征
+def filter_selected_features(features_dict, selected_descriptors, temperature):
+    """只显示选定的七个特征"""
+    filtered_features = {}
+    
+    # 添加温度特征
+    
+    filtered_features['Temp'] = float(temperature)
+    
+    # 添加选定的七个特征
+    for feature_name in selected_descriptors:
+        if feature_name == 'Temp':
+            continue
+        
+        if feature_name in features_dict:
+            filtered_features[feature_name] = features_dict[feature_name]
+        else:
+            # 如果特征不存在，设为0
+            filtered_features[feature_name] = 0.0
+    
+    return filtered_features
+
+# 自动匹配模型特征
+def align_features_with_model(features_dict, predictor, temperature, formula):
+    if predictor is None:
+        return pd.DataFrame([features_dict])
+
+    try:
+        model_features = predictor.feature_metadata.get_features()
+    except Exception:
+        model_features = []
+
+    aligned = {}
+    lower_map = {k.lower(): k for k in features_dict.keys()}
+
+    for feat in model_features:
+        f_low = feat.lower()
+        if feat in features_dict:
+            aligned[feat] = features_dict[feat]
+        elif f_low in lower_map:
+            aligned[feat] = features_dict[lower_map[f_low]]
+        elif f_low in ['temp', 'temperature', 'temperature_k']:
+            aligned[feat] = temperature
+        elif f_low in ['formula']:
+            aligned[feat] = formula
+      
+        else:
+            aligned[feat] = 0.0
+
+    return pd.DataFrame([aligned])
 
 # 如果点击提交按钮
 if submit_button:
@@ -698,6 +797,7 @@ if submit_button:
                     
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
+
 
 
 
