@@ -209,7 +209,7 @@ def validate_chemical_formula(formula):
     return True, "Valid formula"
 
 def get_materials_project_structure(formula, api_key):
-    """获取晶体结构信息 - 完整版本"""
+    """获取晶体结构信息 - 修复版本"""
     if not api_key or not api_key.strip():
         return None, "No API key provided"
     
@@ -224,36 +224,79 @@ def get_materials_project_structure(formula, api_key):
         
         with MPRester(api_key) as mpr:
             try:
-                # 搜索材料
-                results = mpr.summary.search(formula=formula, fields=[
-                    "material_id", "formula_pretty", "spacegroup", 
-                    "density", "volume", "formation_energy_per_atom"
-                ])
+                # 方法1: 使用 get_entries 获取完整结构信息
+                entries = mpr.get_entries(formula, inc_structure=True)
                 
-                if not results:
+                if not entries:
                     return None, f"No materials found for formula: {formula}"
                 
-                material = results[0]
+                # 选择第一个材料（通常是最稳定的）
+                material = entries[0]
+                structure = material.structure
+                material_id = material.entry_id
                 
-                # 获取完整的结构信息
-                structure = mpr.get_structure_by_material_id(material.material_id)
+                # 获取空间群信息
+                try:
+                    # 使用 structure 对象获取空间群
+                    spacegroup = structure.get_space_group_info()
+                    spacegroup_symbol = spacegroup[0] if spacegroup else "N/A"
+                    spacegroup_number = spacegroup[1] if spacegroup else "N/A"
+                except:
+                    spacegroup_symbol = "N/A"
+                    spacegroup_number = "N/A"
                 
                 return {
                     'structure': structure,
-                    'material_id': material.material_id,
-                    'pretty_formula': material.formula_pretty,
+                    'material_id': material_id,
+                    'pretty_formula': formula,
                     'spacegroup': {
-                        'symbol': material.spacegroup.symbol if material.spacegroup else "N/A",
-                        'number': material.spacegroup.number if material.spacegroup else "N/A"
+                        'symbol': spacegroup_symbol,
+                        'number': spacegroup_number
                     },
-                    'density': material.density,
-                    'volume': material.volume,
-                    'formation_energy_per_atom': material.formation_energy_per_atom,
+                    'density': structure.density,
+                    'volume': structure.volume,
+                    'formation_energy_per_atom': material.energy_per_atom,
                     'formula': formula
                 }, None
                 
-            except Exception as e:
-                return None, f"Error retrieving material: {str(e)}"
+            except Exception as entries_error:
+                # 方法2: 如果 get_entries 失败，尝试直接获取结构
+                try:
+                    # 搜索材料ID
+                    search_results = mpr.summary.search(formula=formula, fields=["material_id"])
+                    if not search_results:
+                        return None, f"No materials found for formula: {formula}"
+                    
+                    material_id = search_results[0].material_id
+                    
+                    # 直接获取结构
+                    structure = mpr.get_structure_by_material_id(material_id)
+                    
+                    # 获取空间群信息
+                    try:
+                        spacegroup = structure.get_space_group_info()
+                        spacegroup_symbol = spacegroup[0] if spacegroup else "N/A"
+                        spacegroup_number = spacegroup[1] if spacegroup else "N/A"
+                    except:
+                        spacegroup_symbol = "N/A"
+                        spacegroup_number = "N/A"
+                    
+                    return {
+                        'structure': structure,
+                        'material_id': material_id,
+                        'pretty_formula': formula,
+                        'spacegroup': {
+                            'symbol': spacegroup_symbol,
+                            'number': spacegroup_number
+                        },
+                        'density': structure.density,
+                        'volume': structure.volume,
+                        'formation_energy_per_atom': 'N/A',
+                        'formula': formula
+                    }, None
+                    
+                except Exception as direct_error:
+                    return None, f"All methods failed: {str(direct_error)}"
             
     except Exception as e:
         return None, f"Error accessing Materials Project: {str(e)}"
@@ -311,7 +354,10 @@ def display_structure_info(mp_data):
     with col2:
         st.write(f"**Density:** {mp_data['density']:.2f} g/cm³")
         st.write(f"**Volume:** {mp_data['volume']:.2f} Å³")
-        st.write(f"**Formation Energy:** {mp_data['formation_energy_per_atom']:.3f} eV/atom")
+        if mp_data['formation_energy_per_atom'] != 'N/A':
+            st.write(f"**Formation Energy:** {mp_data['formation_energy_per_atom']:.3f} eV/atom")
+        else:
+            st.write(f"**Formation Energy:** N/A")
         st.write(f"**Symmetry:** {structure_info['symmetry'].capitalize()}")
 
 def display_structure_visualization(mp_data, api_key):
@@ -469,35 +515,6 @@ def filter_selected_features(features_dict, selected_descriptors, temperature):
     
     return filtered_features
 
-# 自动匹配模型特征
-def align_features_with_model(features_dict, predictor, temperature, formula):
-    if predictor is None:
-        return pd.DataFrame([features_dict])
-
-    try:
-        model_features = predictor.feature_metadata.get_features()
-    except Exception:
-        model_features = []
-
-    aligned = {}
-    lower_map = {k.lower(): k for k in features_dict.keys()}
-
-    for feat in model_features:
-        f_low = feat.lower()
-        if feat in features_dict:
-            aligned[feat] = features_dict[feat]
-        elif f_low in lower_map:
-            aligned[feat] = features_dict[lower_map[f_low]]
-        elif f_low in ['temp', 'temperature', 'temperature_k']:
-            aligned[feat] = temperature
-        elif f_low in ['formula']:
-            aligned[feat] = formula
-      
-        else:
-            aligned[feat] = 0.0
-
-    return pd.DataFrame([aligned])
-
 # 如果点击提交按钮
 if submit_button:
     if not formula_input:
@@ -533,73 +550,4 @@ if submit_button:
                     st.write(f"✅ Features prepared for prediction")
                     
                     # 显示选定的特征
-                    selected_features = filter_selected_features(features, required_descriptors, temperature)
-                    feature_df = pd.DataFrame([selected_features])
-                    
-                    st.subheader("Material Features")
-                    st.dataframe(feature_df)
-                
-                    # 创建输入数据
-                    input_data = {feature: [value] for feature, value in selected_features.items()}
-                    input_data['Formula'] = [formula_input]
-                    input_df = pd.DataFrame(input_data)
-                  
-                    try:
-                        # 使用缓存的模型加载方式
-                        predictor = load_predictor()
-                    
-                        # 只使用最关键的模型进行预测，减少内存占用
-                        essential_models = ['CatBoost',
-                                          'ExtraTreesMSE',
-                                          'LightGBM',
-                                          'KNeighborsDist',
-                                          'WeightedEnsemble_L2',
-                                          'XGBoost']
-                                        
-                        predict_df = input_df.copy()
-                        predictions_dict = {}
-                    
-                        for model in essential_models:
-                            try:
-                                predictions = predictor.predict(predict_df, model=model)
-                                predictions_dict[model] = predictions
-                            except Exception as model_error:
-                                st.warning(f"Model {model} prediction failed: {str(model_error)}")
-                                predictions_dict[model] = "Error"
-
-                        # 显示预测结果
-                        st.write("Prediction Results (Essential Models):")
-                        st.markdown(
-                          "**Note:** WeightedEnsemble_L2 is a meta-model combining predictions from other models.")
-                        results_df = pd.DataFrame(predictions_dict)
-                        st.dataframe(results_df.iloc[:1,:])
-                    
-                        # 主动释放内存
-                        del predictor
-                        gc.collect()
-
-                    except Exception as e:
-                        st.error(f"Model loading failed: {str(e)}")
-
-                except Exception as e:
-                    st.error(f"An error occurred: {str(e)}")
-
-# 侧边栏信息
-with st.sidebar:
-    st.markdown("### ℹ️ About")
-    st.markdown("""
-    This app predicts ionic conductivity of solid electrolyte materials.
-    
-    **Features:**
-    - Material composition analysis
-    - Crystal structure information
-    - 3D visualization (if available)
-    - Multi-model prediction
-    - External database links
-    """)
-    
-    st.markdown("### 🔧 Status")
-    if _3D_AVAILABLE:
-        st.success("3D visualization: Enabled")
-    else:
-        st.warning("3D visualization: Disabled")
+                    selected_features = filter_selected_features(features, required
