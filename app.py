@@ -11,8 +11,82 @@ import gc
 import sys
 import os
 
-# 禁用有问题的库，使用替代方案
+# 3D可视化设置 - 延迟导入以避免启动时冲突
 _3D_AVAILABLE = False
+py3Dmol = None
+showmol = None
+
+def init_3d_libraries():
+    """延迟初始化3D库"""
+    global _3D_AVAILABLE, py3Dmol, showmol
+    try:
+        import py3Dmol as _py3Dmol
+        from stmol import showmol as _showmol
+        py3Dmol = _py3Dmol
+        showmol = _showmol
+        _3D_AVAILABLE = True
+        return True
+    except ImportError as e:
+        _3D_AVAILABLE = False
+        st.sidebar.warning(f"3D visualization libraries not available: {str(e)}")
+        return False
+
+def create_3d_structure_viewer_fixed(structure):
+    """修复的3D晶体结构查看器 - 显示完整晶胞"""
+    if not _3D_AVAILABLE or py3Dmol is None:
+        return None
+        
+    try:
+        cif_string = structure.to(fmt="cif")
+        viewer = py3Dmol.view(width=400, height=300)
+        viewer.addModel(cif_string, 'cif')
+        
+        # 设置元素特定的显示样式
+        element_settings = {
+            'Li': {'sphere': 0.8, 'stick': 0.1, 'color': '0xFF0000'},
+            'La': {'sphere': 1.2, 'stick': 0.15, 'color': '0x00FF00'},
+            'Zr': {'sphere': 1.0, 'stick': 0.13, 'color': '0x0000FF'},
+            'O': {'sphere': 0.7, 'stick': 0.1, 'color': '0xFFA500'},
+            'P': {'sphere': 0.9, 'stick': 0.12, 'color': '0x800080'},
+            'S': {'sphere': 0.9, 'stick': 0.12, 'color': '0xFFFF00'},
+            'Cl': {'sphere': 0.8, 'stick': 0.1, 'color': '0x00FFFF'},
+            'F': {'sphere': 0.6, 'stick': 0.08, 'color': '0x008000'},
+            'Na': {'sphere': 1.0, 'stick': 0.12, 'color': '0x000080'},
+            'K': {'sphere': 1.3, 'stick': 0.16, 'color': '0xFF69B4'},
+            'Mg': {'sphere': 1.0, 'stick': 0.12, 'color': '0x808080'},
+            'Ca': {'sphere': 1.1, 'stick': 0.14, 'color': '0xFFD700'},
+            'Al': {'sphere': 0.9, 'stick': 0.11, 'color': '0xA9A9A9'},
+            'Si': {'sphere': 0.9, 'stick': 0.11, 'color': '0x696969'},
+            'Ge': {'sphere': 1.0, 'stick': 0.12, 'color': '0x2F4F4F'}
+        }
+        
+        # 为每种元素设置合适的样式
+        for element in set(structure.species):
+            element_symbol = element.symbol
+            settings = element_settings.get(element_symbol, {
+                'sphere': 0.7, 'stick': 0.1, 'color': '0xCCCCCC'
+            })
+            
+            viewer.setStyle({'elem': element_symbol}, {
+                'stick': {'radius': settings['stick'], 'color': settings['color']},
+                'sphere': {'radius': settings['sphere'], 'color': settings['color'], 'opacity': 0.8}
+            })
+        
+        # 确保显示完整晶胞
+        viewer.zoomTo()
+        
+        # 添加晶胞边界
+        try:
+            viewer.addUnitCell()
+        except:
+            pass
+        
+        viewer.setBackgroundColor('0xeeeeee')
+        return viewer
+        
+    except Exception as e:
+        st.error(f"3D viewer error: {str(e)}")
+        return None
 
 # 添加 CSS 样式
 st.markdown(
@@ -57,6 +131,13 @@ st.markdown(
         padding: 10px;
         margin: 10px 0;
         border-radius: 4px;
+    }
+    .element-color {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        margin-right: 5px;
     }
     </style>
     """,
@@ -128,12 +209,13 @@ def validate_chemical_formula(formula):
     return True, "Valid formula"
 
 def get_materials_project_structure(formula, api_key):
-    """获取晶体结构信息 - 简化版本"""
+    """获取晶体结构信息 - 完整版本"""
     if not api_key or not api_key.strip():
         return None, "No API key provided"
     
     try:
         from pymatgen.ext.matproj import MPRester
+        from pymatgen.core import Structure
         
         api_key = api_key.strip()
         
@@ -153,7 +235,11 @@ def get_materials_project_structure(formula, api_key):
                 
                 material = results[0]
                 
+                # 获取完整的结构信息
+                structure = mpr.get_structure_by_material_id(material.material_id)
+                
                 return {
+                    'structure': structure,
                     'material_id': material.material_id,
                     'pretty_formula': material.formula_pretty,
                     'spacegroup': {
@@ -172,78 +258,145 @@ def get_materials_project_structure(formula, api_key):
     except Exception as e:
         return None, f"Error accessing Materials Project: {str(e)}"
 
+def analyze_structure_features(structure):
+    """分析晶体结构特征"""
+    try:
+        density = structure.density
+        lattice_type = "unknown"
+        symmetry = "low"
+        
+        a, b, c = structure.lattice.abc
+        alpha, beta, gamma = structure.lattice.angles
+        
+        if abs(a - b) < 0.1 and abs(b - c) < 0.1 and all(abs(angle - 90) < 1 for angle in [alpha, beta, gamma]):
+            lattice_type = "cubic"
+            symmetry = "high"
+        elif abs(a - b) < 0.1 and abs(alpha - 90) < 1 and abs(beta - 90) < 1 and abs(gamma - 90) < 1:
+            lattice_type = "tetragonal"
+            symmetry = "medium"
+        elif abs(a - b) < 0.1 and abs(alpha - 90) < 1 and abs(beta - 90) < 1 and abs(gamma - 120) < 1:
+            lattice_type = "hexagonal"
+            symmetry = "medium"
+        else:
+            lattice_type = "orthorhombic/triclinic"
+            symmetry = "low"
+        
+        return {
+            'density': density,
+            'structure_type': lattice_type,
+            'symmetry': symmetry
+        }
+        
+    except Exception as e:
+        return {
+            'density': 'N/A',
+            'structure_type': 'unknown',
+            'symmetry': 'unknown'
+        }
+
 def display_structure_info(mp_data):
     """显示结构信息"""
     st.markdown("### Crystal Structure Information")
+    
+    # 分析结构特征
+    structure_info = analyze_structure_features(mp_data['structure'])
     
     col1, col2 = st.columns(2)
     with col1:
         st.write(f"**Material ID:** `{mp_data['material_id']}`")
         st.write(f"**Formula:** {mp_data['pretty_formula']}")
         st.write(f"**Space Group:** {mp_data['spacegroup']['symbol']} ({mp_data['spacegroup']['number']})")
+        st.write(f"**Structure Type:** {structure_info['structure_type'].capitalize()}")
         
     with col2:
         st.write(f"**Density:** {mp_data['density']:.2f} g/cm³")
         st.write(f"**Volume:** {mp_data['volume']:.2f} Å³")
         st.write(f"**Formation Energy:** {mp_data['formation_energy_per_atom']:.3f} eV/atom")
-    
-    # 显示晶格参数可视化
-    st.markdown("### Crystal Structure Visualization")
-    
-    # 创建结构示意图
-    fig = go.Figure()
-    
-    # 添加晶体结构示意图
-    fig.add_annotation(
-        text=f"<b>{mp_data['pretty_formula']}</b><br>"
-             f"Space Group: {mp_data['spacegroup']['symbol']}<br>"
-             f"Density: {mp_data['density']:.2f} g/cm³<br>"
-             f"Volume: {mp_data['volume']:.2f} Å³<br><br>"
-             f"<i>View interactive 3D structure on Materials Project</i>",
-        x=0.5, y=0.5, xref="paper", yref="paper",
-        showarrow=False,
-        font=dict(size=16, color="black"),
-        bgcolor="white",
-        bordercolor="blue",
-        borderwidth=2,
-        borderpad=10,
-        align="center"
-    )
-    
-    fig.update_layout(
-        title="Crystal Structure Information",
-        xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
-        yaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
-        showlegend=False,
-        height=300,
-        margin=dict(l=20, r=20, t=60, b=20),
-        paper_bgcolor='lightblue'
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # 添加外部链接
-    st.markdown("### View Interactive 3D Structure")
-    material_id = mp_data['material_id']
-    clean_material_id = material_id.split('-')[0] if '-' in material_id else material_id
-    mp_url = f"https://next-gen.materialsproject.org/materials/{clean_material_id}"
-    
-    st.markdown(f"""
-    <div style="text-align: center; margin: 20px 0;">
-        <a href="{mp_url}" target="_blank" style="
-            display: inline-block;
-            padding: 12px 24px;
-            background-color: #1976d2;
-            color: white;
-            text-decoration: none;
-            border-radius: 8px;
-            font-weight: bold;
-            font-size: 1.1em;
-        ">
-        🔍 View Interactive 3D Structure on Materials Project
-        </a>
-    </div>
-    """, unsafe_allow_html=True)
+        st.write(f"**Symmetry:** {structure_info['symmetry'].capitalize()}")
+
+def display_structure_visualization(mp_data, api_key):
+    """显示晶体结构可视化"""
+    try:
+        st.subheader("🎯 Crystal Structure Visualization")
+        
+        # 初始化3D库
+        init_3d_libraries()
+        
+        if _3D_AVAILABLE:
+            tab1, tab2, tab3 = st.tabs(["3D Structure Viewer", "Structure Info", "External Links"])
+        else:
+            tab1, tab2 = st.tabs(["Structure Info", "External Links"])
+            st.info("💡 3D visualization requires additional libraries. Showing structure information and external links.")
+        
+        if _3D_AVAILABLE:
+            with tab1:
+                st.markdown("### Interactive 3D Structure")
+                
+                # 使用修复的查看器
+                viewer = create_3d_structure_viewer_fixed(mp_data['structure'])
+                if viewer and showmol:
+                    showmol(viewer, height=400, width=600)
+                    
+                    # 添加元素图例
+                    st.markdown("#### Element Colors:")
+                    elements = set(mp_data['structure'].species)
+                    element_colors = {
+                        'Li': '#FF0000', 'La': '#00FF00', 'Zr': '#0000FF', 
+                        'O': '#FFA500', 'P': '#800080', 'S': '#FFFF00',
+                        'Cl': '#00FFFF', 'F': '#008000', 'Other': '#CCCCCC'
+                    }
+                    
+                    cols = st.columns(4)
+                    for i, element in enumerate(elements):
+                        element_symbol = element.symbol
+                        color = element_colors.get(element_symbol, '#CCCCCC')
+                        with cols[i % 4]:
+                            st.markdown(
+                                f'<span class="element-color" style="background-color: {color};"></span> {element_symbol}',
+                                unsafe_allow_html=True
+                            )
+                    
+                    # 添加控制按钮
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("🔄 Reset View", key="reset_view"):
+                            st.rerun()
+                    with col2:
+                        if st.button("📐 Toggle Cell", key="toggle_cell"):
+                            st.rerun()
+                    
+                    st.markdown("""
+                    **Viewer Controls:**
+                    - **Rotate:** Click and drag
+                    - **Zoom:** Scroll mouse wheel  
+                    - **Pan:** Shift + Click and drag
+                    - **Reset:** Double click
+                    - Atoms are connected by chemical bonds
+                    - Unit cell shows crystal boundaries
+                    """)
+                else:
+                    st.warning("3D viewer could not be initialized.")
+        
+        with tab2:
+            display_structure_info(mp_data)
+            
+        with tab3 if _3D_AVAILABLE else tab2:
+            st.markdown("### View on External Databases")
+            
+            material_id = mp_data['material_id']
+            clean_material_id = material_id.split('-')[0] if '-' in material_id else material_id
+            formula = mp_data['pretty_formula']
+            
+            st.markdown("#### 📊 Materials Project")
+            mp_url = f"https://next-gen.materialsproject.org/materials/{clean_material_id}"
+            st.markdown(f"- [View Interactive Structure]({mp_url})")
+            
+            st.markdown("#### 🏛️ Crystallography Open Database (COD)")
+            cod_url = f"https://www.crystallography.net/cod/search?formula={formula}"
+            st.markdown(f"- [Search COD for {formula}]({cod_url})")
+            
+    except Exception as e:
+        st.error(f"Error displaying structure visualization: {str(e)}")
 
 # 材料特征计算函数
 def calculate_material_features(formula):
@@ -301,7 +454,6 @@ def filter_selected_features(features_dict, selected_descriptors, temperature):
     filtered_features = {}
     
     # 添加温度特征
-    
     filtered_features['Temp'] = float(temperature)
     
     # 添加选定的七个特征
@@ -367,7 +519,7 @@ if submit_button:
                             
                             if mp_data and mp_error is None:
                                 st.success("✅ Crystal structure retrieved from Materials Project")
-                                display_structure_info(mp_data)
+                                display_structure_visualization(mp_data, mp_api_key)
                             else:
                                 st.warning(f"Could not retrieve crystal structure: {mp_error}")
                                 st.info("💡 The material might not exist in Materials Project database")
@@ -432,16 +584,22 @@ if submit_button:
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+# 侧边栏信息
+with st.sidebar:
+    st.markdown("### ℹ️ About")
+    st.markdown("""
+    This app predicts ionic conductivity of solid electrolyte materials.
+    
+    **Features:**
+    - Material composition analysis
+    - Crystal structure information
+    - 3D visualization (if available)
+    - Multi-model prediction
+    - External database links
+    """)
+    
+    st.markdown("### 🔧 Status")
+    if _3D_AVAILABLE:
+        st.success("3D visualization: Enabled")
+    else:
+        st.warning("3D visualization: Disabled")
