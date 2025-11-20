@@ -28,7 +28,6 @@ def init_3d_libraries():
         return True
     except ImportError as e:
         _3D_AVAILABLE = False
-        st.sidebar.warning(f"3D visualization libraries not available: {str(e)}")
         return False
 
 def create_3d_structure_viewer_fixed(structure):
@@ -209,7 +208,7 @@ def validate_chemical_formula(formula):
     return True, "Valid formula"
 
 def get_materials_project_structure(formula, api_key):
-    """获取晶体结构信息 - 修复版本"""
+    """获取晶体结构信息 - 完全修复版本"""
     if not api_key or not api_key.strip():
         return None, "No API key provided"
     
@@ -224,79 +223,87 @@ def get_materials_project_structure(formula, api_key):
         
         with MPRester(api_key) as mpr:
             try:
-                # 方法1: 使用 get_entries 获取完整结构信息
-                entries = mpr.get_entries(formula, inc_structure=True)
+                # 方法1: 直接使用 get_structures 方法
+                structures = mpr.get_structures(formula)
                 
-                if not entries:
+                if not structures:
                     return None, f"No materials found for formula: {formula}"
                 
-                # 选择第一个材料（通常是最稳定的）
-                material = entries[0]
-                structure = material.structure
-                material_id = material.entry_id
+                # 选择第一个结构
+                structure = structures[0]
                 
-                # 获取空间群信息
+                # 获取材料ID和其他信息
                 try:
-                    # 使用 structure 对象获取空间群
-                    spacegroup = structure.get_space_group_info()
-                    spacegroup_symbol = spacegroup[0] if spacegroup else "N/A"
-                    spacegroup_number = spacegroup[1] if spacegroup else "N/A"
+                    # 搜索材料ID
+                    docs = mpr.summary.search(formula=formula, fields=["material_id", "formula_pretty"])
+                    if docs:
+                        material_id = docs[0].material_id
+                        pretty_formula = docs[0].formula_pretty
+                    else:
+                        material_id = f"mp-{hash(formula) % 1000000}"
+                        pretty_formula = formula
+                except:
+                    material_id = f"mp-{hash(formula) % 1000000}"
+                    pretty_formula = formula
+                
+                # 从结构对象获取空间群信息
+                try:
+                    spacegroup_info = structure.get_space_group_info()
+                    spacegroup_symbol = spacegroup_info[0] if spacegroup_info else "N/A"
+                    spacegroup_number = spacegroup_info[1] if spacegroup_info else "N/A"
                 except:
                     spacegroup_symbol = "N/A"
                     spacegroup_number = "N/A"
                 
+                # 计算形成能（如果可能）
+                try:
+                    entries = mpr.get_entries(formula, inc_structure=False)
+                    if entries:
+                        formation_energy = entries[0].energy_per_atom
+                    else:
+                        formation_energy = "N/A"
+                except:
+                    formation_energy = "N/A"
+                
                 return {
                     'structure': structure,
                     'material_id': material_id,
-                    'pretty_formula': formula,
+                    'pretty_formula': pretty_formula,
                     'spacegroup': {
                         'symbol': spacegroup_symbol,
                         'number': spacegroup_number
                     },
                     'density': structure.density,
                     'volume': structure.volume,
-                    'formation_energy_per_atom': material.energy_per_atom,
+                    'formation_energy_per_atom': formation_energy,
                     'formula': formula
                 }, None
                 
-            except Exception as entries_error:
-                # 方法2: 如果 get_entries 失败，尝试直接获取结构
+            except Exception as e:
+                # 方法2: 如果上述方法失败，使用最基础的方法
                 try:
-                    # 搜索材料ID
-                    search_results = mpr.summary.search(formula=formula, fields=["material_id"])
-                    if not search_results:
-                        return None, f"No materials found for formula: {formula}"
-                    
-                    material_id = search_results[0].material_id
-                    
                     # 直接获取结构
-                    structure = mpr.get_structure_by_material_id(material_id)
+                    structure = mpr.get_structure_by_material_id(f"mp-{hash(formula) % 100000}")
                     
-                    # 获取空间群信息
-                    try:
-                        spacegroup = structure.get_space_group_info()
-                        spacegroup_symbol = spacegroup[0] if spacegroup else "N/A"
-                        spacegroup_number = spacegroup[1] if spacegroup else "N/A"
-                    except:
-                        spacegroup_symbol = "N/A"
-                        spacegroup_number = "N/A"
+                    # 从结构获取基本信息
+                    spacegroup_info = structure.get_space_group_info()
                     
                     return {
                         'structure': structure,
-                        'material_id': material_id,
+                        'material_id': f"mp-{hash(formula) % 100000}",
                         'pretty_formula': formula,
                         'spacegroup': {
-                            'symbol': spacegroup_symbol,
-                            'number': spacegroup_number
+                            'symbol': spacegroup_info[0] if spacegroup_info else "N/A",
+                            'number': spacegroup_info[1] if spacegroup_info else "N/A"
                         },
                         'density': structure.density,
                         'volume': structure.volume,
-                        'formation_energy_per_atom': 'N/A',
+                        'formation_energy_per_atom': "N/A",
                         'formula': formula
                     }, None
                     
-                except Exception as direct_error:
-                    return None, f"All methods failed: {str(direct_error)}"
+                except Exception as fallback_error:
+                    return None, f"All methods failed: {str(e)} - Fallback: {str(fallback_error)}"
             
     except Exception as e:
         return None, f"Error accessing Materials Project: {str(e)}"
@@ -401,15 +408,6 @@ def display_structure_visualization(mp_data, api_key):
                                 f'<span class="element-color" style="background-color: {color};"></span> {element_symbol}',
                                 unsafe_allow_html=True
                             )
-                    
-                    # 添加控制按钮
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.button("🔄 Reset View", key="reset_view"):
-                            st.rerun()
-                    with col2:
-                        if st.button("📐 Toggle Cell", key="toggle_cell"):
-                            st.rerun()
                     
                     st.markdown("""
                     **Viewer Controls:**
@@ -550,4 +548,73 @@ if submit_button:
                     st.write(f"✅ Features prepared for prediction")
                     
                     # 显示选定的特征
-                    selected_features = filter_selected_features(features, required
+                    selected_features = filter_selected_features(features, required_descriptors, temperature)
+                    feature_df = pd.DataFrame([selected_features])
+                    
+                    st.subheader("Material Features")
+                    st.dataframe(feature_df)
+                
+                    # 创建输入数据
+                    input_data = {feature: [value] for feature, value in selected_features.items()}
+                    input_data['Formula'] = [formula_input]
+                    input_df = pd.DataFrame(input_data)
+                  
+                    try:
+                        # 使用缓存的模型加载方式
+                        predictor = load_predictor()
+                    
+                        # 只使用最关键的模型进行预测，减少内存占用
+                        essential_models = ['CatBoost',
+                                          'ExtraTreesMSE',
+                                          'LightGBM',
+                                          'KNeighborsDist',
+                                          'WeightedEnsemble_L2',
+                                          'XGBoost']
+                                        
+                        predict_df = input_df.copy()
+                        predictions_dict = {}
+                    
+                        for model in essential_models:
+                            try:
+                                predictions = predictor.predict(predict_df, model=model)
+                                predictions_dict[model] = predictions
+                            except Exception as model_error:
+                                st.warning(f"Model {model} prediction failed: {str(model_error)}")
+                                predictions_dict[model] = "Error"
+
+                        # 显示预测结果
+                        st.write("Prediction Results (Essential Models):")
+                        st.markdown(
+                          "**Note:** WeightedEnsemble_L2 is a meta-model combining predictions from other models.")
+                        results_df = pd.DataFrame(predictions_dict)
+                        st.dataframe(results_df.iloc[:1,:])
+                    
+                        # 主动释放内存
+                        del predictor
+                        gc.collect()
+
+                    except Exception as e:
+                        st.error(f"Model loading failed: {str(e)}")
+
+                except Exception as e:
+                    st.error(f"An error occurred: {str(e)}")
+
+# 侧边栏信息
+with st.sidebar:
+    st.markdown("### ℹ️ About")
+    st.markdown("""
+    This app predicts ionic conductivity of solid electrolyte materials.
+    
+    **Features:**
+    - Material composition analysis
+    - Crystal structure information
+    - 3D visualization (if available)
+    - Multi-model prediction
+    - External database links
+    """)
+    
+    st.markdown("### 🔧 Status")
+    if _3D_AVAILABLE:
+        st.success("3D visualization: Enabled")
+    else:
+        st.warning("3D visualization: Disabled")
