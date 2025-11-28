@@ -17,10 +17,11 @@ import numpy as np
 # ========== 晶体结构依赖 ==========
 import py3Dmol
 from pymatgen.ext.matproj import MPRester
+from pymatgen.core import Structure
 
 # ======= Materials Project API KEY =======
+# 如果你有自己的 API key，请替换下面的值；保密处理请不要公开分享 Key
 MP_API_KEY = "Gd6Y2d9mtjquU8imu8n4GdIiwCvUtZqN"
-
 
 # ===================== Streamlit 样式 =====================
 st.markdown(
@@ -68,7 +69,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-
 # ===================== 输入区 =====================
 formula_input = st.text_input(
     "Enter Chemical Formula of the Material:",
@@ -88,23 +88,75 @@ submit_button = st.button("Submit and Predict")
 
 @st.cache_resource(show_spinner=False)
 def load_predictor():
+    # 请确认模型目录存在且包含训练好的 predictor
     return TabularPredictor.load("./ag-20251024_075719")
 
 
 # ====================================================================
-# 🔹 1. 从 Materials Project 获取晶体结构（稳定版 API）
+# 🔹 1. 从 Materials Project 获取晶体结构（多方法尝试，增强兼容性）
 # ====================================================================
 def get_structure_cif(formula):
+    """
+    尝试使用多种常见 MPRester 接口来获取结构并返回 cif 字符串。
+    兼容不同 pymatgen 版本。
+    """
     try:
         with MPRester(MP_API_KEY) as mpr:
-            data = mpr.get_data(formula)
-            if not data:
-                return None
+            # 1) 尝试 summary.search（某些版本可用）
+            try:
+                if hasattr(mpr, "summary") and hasattr(mpr.summary, "search"):
+                    res = mpr.summary.search(formula=formula)
+                    if res:
+                        # res 元素可能有 .structure 或 .entry
+                        first = res[0]
+                        if hasattr(first, "structure"):
+                            return first.structure.to(fmt="cif")
+                        # 有些版本返回 dict-like summary
+                        if isinstance(first, dict) and "material_id" in first:
+                            mid = first["material_id"]
+                            struct = mpr.get_structure_by_material_id(mid)
+                            return struct.to(fmt="cif")
+            except Exception:
+                # 忽略并尝试下一种方法
+                pass
 
-            material_id = data[0]["material_id"]
-            structure = mpr.get_structure_by_material_id(material_id)
-            cif_str = structure.to(fmt="cif")
-            return cif_str
+            # 2) 尝试 mpr.query（常见且稳定）
+            try:
+                if hasattr(mpr, "query"):
+                    query_res = mpr.query(criteria={"formula": formula}, properties=["material_id"])
+                    if query_res:
+                        mid = query_res[0].get("material_id")
+                        if mid:
+                            struct = mpr.get_structure_by_material_id(mid)
+                            return struct.to(fmt="cif")
+            except Exception:
+                pass
+
+            # 3) 尝试 get_entries（有时可用）
+            try:
+                if hasattr(mpr, "get_entries"):
+                    entries = mpr.get_entries(formula)
+                    if entries:
+                        entry = entries[0]
+                        if hasattr(entry, "structure"):
+                            return entry.structure.to(fmt="cif")
+            except Exception:
+                pass
+
+            # 4) 最后尝试 get_structures_by_formula（某些 pymatgen 版本提供该方法）
+            try:
+                if hasattr(mpr, "get_structures"):
+                    structs = mpr.get_structures(formula)
+                    if structs:
+                        s0 = structs[0]
+                        if isinstance(s0, Structure):
+                            return s0.to(fmt="cif")
+                        # 有时返回 dict/list 中包含 structure
+            except Exception:
+                pass
+
+            # 若所有方式均失败，返回 None
+            return None
 
     except Exception as e:
         st.error(f"Failed to retrieve structure: {e}")
@@ -112,17 +164,24 @@ def get_structure_cif(formula):
 
 
 # ====================================================================
-# 🔹 2. 通过 py3Dmol 渲染晶体结构（Streamlit 完美兼容）
+# 🔹 2. 通过 py3Dmol 渲染晶体结构（Streamlit 完整兼容）
 # ====================================================================
-def show_structure_3d(cif_string):
-    view = py3Dmol.view(width=600, height=450)
-    view.addModel(cif_string, "cif")
-    view.setStyle({"stick": {}})
-    view.addUnitCell()
-    view.zoomTo()
-
-    # 在 Streamlit 中必须使用 components.html 才能加载 3Dmol.js
-    st.components.v1.html(view._make_html(), height=500, scrolling=False)
+def show_structure_3d(cif_string, width=700, height=520):
+    """
+    在 Streamlit 中显示 py3Dmol 生成的 3D 视图。
+    注意：不要使用 view.show()（Jupyter 专用），而是通过 HTML 注入。
+    """
+    try:
+        view = py3Dmol.view(width=width, height=height)
+        view.addModel(cif_string, "cif")
+        # 你可以更改展示样式：'stick','sphere','line','cartoon' 等
+        view.setStyle({"stick": {}})
+        view.addUnitCell()
+        view.zoomTo()
+        html = view._make_html()
+        st.components.v1.html(html, height=height + 20, scrolling=False)
+    except Exception as e:
+        st.error(f"3D visualization error: {e}")
 
 
 # ====================================================================
@@ -195,7 +254,7 @@ def filter_selected_features(features_dict, selected_descriptors, temperature):
 
 
 # ====================================================================
-# 🔹 4. 主逻辑
+# 🔹 4. 主逻辑（整合显示 + 特征 + 预测）
 # ====================================================================
 if submit_button:
 
@@ -230,26 +289,34 @@ if submit_button:
                 input_data[f] = [features.get(f, 0.0)]
         input_df = pd.DataFrame(input_data)
 
-        predictor = load_predictor()
+        # 模型预测
+        try:
+            predictor = load_predictor()
+        except Exception as e:
+            st.error(f"Failed to load predictor: {e}")
+            predictor = None
 
-        models = [
-            "CatBoost",
-            "ExtraTreesMSE",
-            "LightGBM",
-            "KNeighborsDist",
-            "WeightedEnsemble_L2",
-            "XGBoost",
-        ]
+        if predictor is not None:
+            models = [
+                "CatBoost",
+                "ExtraTreesMSE",
+                "LightGBM",
+                "KNeighborsDist",
+                "WeightedEnsemble_L2",
+                "XGBoost",
+            ]
 
-        results = {}
-        for m in models:
-            try:
-                results[m] = predictor.predict(input_df, model=m)
-            except:
-                results[m] = "Error"
+            results = {}
+            for m in models:
+                try:
+                    results[m] = predictor.predict(input_df, model=m)
+                except Exception:
+                    results[m] = "Error"
 
-        st.subheader("Prediction Results")
-        st.dataframe(pd.DataFrame(results).iloc[:1, :])
+            st.subheader("Prediction Results")
+            st.dataframe(pd.DataFrame(results).iloc[:1, :])
 
-        del predictor
-        gc.collect()
+            del predictor
+            gc.collect()
+        else:
+            st.error("Predictor unavailable; cannot generate predictions.")
