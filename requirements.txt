@@ -1,12 +1,13 @@
 streamlit==1.30.0
-rdkit==2024.9.6
+rdkit==2024.9.6            # 建议通过 conda 安装（见说明）
 numpy==1.26.4
 pandas==2.1.4
 autogluon==1.2.0
-pillow==10.4.0  # 显式指定兼容版本
+pillow==10.4.0
 
 pymatgen==2023.9.10
 matminer==0.9.3
 
-mordred
-#git+https://github.com/mordred-descriptor/mordred.git
+mordred==1.2.0            # 或使用 git+... 的方式（如果你需要最新）
+py3Dmol                  # 用于 3D 可视化（pip install py3Dmol）
+# crystal_toolkit         # 如果你确实要用，注意依赖很多；一般不推荐
