@@ -118,7 +118,7 @@ def show_structure_3d(cif_string):
     view.setStyle({"stick": {}})
     view.addUnitCell()
     view.zoomTo()
-    view.show()
+    
     st.write(view._make_html(), unsafe_allow_html=True)
 
 
@@ -254,3 +254,4 @@ if submit_button:
 
         del predictor
         gc.collect()
+
