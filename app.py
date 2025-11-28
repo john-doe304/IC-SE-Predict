@@ -15,16 +15,14 @@ import re
 from tqdm import tqdm
 import numpy as np
 
-# -----------------------------
-# 新增的晶体结构可视化依赖
-# -----------------------------
+# ========== 新增：晶体结构显示依赖 ==========
+import py3Dmol
 from pymatgen.ext.matproj import MPRester
-from crystal_toolkit.helpers.asymptote import StructureMoleculeComponent
 
-# 你必须替换这里！
-MP_API_KEY = "Gd6Y2d9mtjquU8imu8n4GdIiwCvUtZqN"
+# ========== Materials Project API KEY ==========
+MP_API_KEY = "Gd6Y2d9mtjquU8imu8n4GdIiwCvUtZqN"   # <-- 换成你自己的 API key
 
-# 页面基本样式
+# 页面样式
 st.markdown(
     """
     <style>
@@ -57,70 +55,76 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# 页面标题
 st.markdown(
     """
     <div class='rounded-container'>
         <h2 style="font-size:24px;"> Predict Ionic Conductivity of Solid Electrolytes</h2>
         <blockquote>
             1. This web app predicts ionic conductivity of solid electrolytes based on material composition features.<br>
-             2. Enter a valid chemical formula string below to get the predicted result.
+            2. Enter a valid chemical formula string below to get the predicted result.
         </blockquote>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-# FORMULA 输入区域
+# 输入区
 formula_input = st.text_input(
     "Enter Chemical Formula of the Material:",
     placeholder="e.g., Li7La3Zr2O12, Li10GeP2S12, Li3YCl6",
 )
 
-# 温度输入
 temperature = st.number_input(
-    "Select Temperature (K):", min_value=200, max_value=1000, value=298, step=10
+    "Select Temperature (K):",
+    min_value=200,
+    max_value=1000,
+    value=298,
+    step=10,
 )
 
-# 提交按钮
-submit_button = st.button("Submit and Predict", key="predict_button")
+submit_button = st.button("Submit and Predict")
 
-# 选定的七个特征
-required_descriptors = [
-    "MagpieData mean CovalentRadius",
-    "Temp",
-    "MagpieData avg_dev SpaceGroupNumber",
-    "0-norm",
-    "MagpieData mean MeltingT",
-    "MagpieData avg_dev Column",
-    "MagpieData mean NValence",
-]
 
-# 缓存模型
-@st.cache_resource(show_spinner=False, max_entries=1)
+@st.cache_resource(show_spinner=False)
 def load_predictor():
     return TabularPredictor.load("./ag-20251024_075719")
 
-# ---------------------------
-# 材料结构查询（新增功能）
-# ---------------------------
-def get_structure_from_mp(formula):
-    """从 Materials Project 查询晶体结构"""
+
+# ---------------------------------------------------
+# 🔹 从 Materials Project 获取晶体结构（新增功能）
+# ---------------------------------------------------
+def get_structure_cif(formula):
+    """从 Materials Project 查询晶体结构并返回 cif 字符串"""
     try:
         with MPRester(MP_API_KEY) as mpr:
             results = mpr.summary.search(formula=formula)
             if not results:
                 return None
             structure = results[0].structure
-            return structure
+            cif_str = structure.to(fmt="cif")
+            return cif_str
     except Exception as e:
-        st.error(f"Error retrieving structure: {e}")
+        st.error(f"Failed to retrieve structure: {e}")
         return None
 
 
-# ---------------------------
-# 材料特征提取（你的原代码）
-# ---------------------------
+# ---------------------------------------------------
+# 🔹 使用 Py3Dmol 渲染晶体结构（新增功能）
+# ---------------------------------------------------
+def show_structure_3d(cif_string):
+    """使用 py3Dmol 显示 3D 晶体结构"""
+    view = py3Dmol.view(width=600, height=450)
+    view.addModel(cif_string, "cif")
+    view.setStyle({"stick": {}})
+    view.addUnitCell()
+    view.zoomTo()
+    view.show()
+    st.write(view._make_html(), unsafe_allow_html=True)
+
+
+# ---------------------------------------------------
+# 🔹 特征计算
+# ---------------------------------------------------
 def calculate_material_features(formula):
     try:
         from matminer.featurizers.composition import (
@@ -135,10 +139,9 @@ def calculate_material_features(formula):
         )
 
         df = pd.DataFrame({"Formula": [formula]})
-        stc = StrToComposition()
-        df = stc.featurize_dataframe(df, "Formula", ignore_errors=True)
+        df = StrToComposition().featurize_dataframe(df, "Formula", ignore_errors=True)
 
-        if "composition" not in df.columns or df["composition"].iloc[0] is None:
+        if "composition" not in df.columns:
             return {"Formula": formula}
 
         features = {"Formula": formula}
@@ -146,20 +149,19 @@ def calculate_material_features(formula):
         ep = ElementProperty.from_preset("magpie")
         df = ep.featurize_dataframe(df, "composition", ignore_errors=True)
 
-        mer = Meredig()
-        df = mer.featurize_dataframe(df, "composition", ignore_errors=True)
+        df = Meredig().featurize_dataframe(df, "composition", ignore_errors=True)
+        df = Stoichiometry().featurize_dataframe(
+            df, "composition", ignore_errors=True
+        )
+        df = CompositionToOxidComposition().featurize_dataframe(
+            df, "composition", ignore_errors=True
+        )
+        df = IonProperty().featurize_dataframe(
+            df, "composition_oxid", ignore_errors=True
+        )
 
-        sto = Stoichiometry()
-        df = sto.featurize_dataframe(df, "composition", ignore_errors=True)
-
-        cto = CompositionToOxidComposition()
-        df = cto.featurize_dataframe(df, "composition", ignore_errors=True)
-
-        ion = IonProperty()
-        df = ion.featurize_dataframe(df, "composition_oxid", ignore_errors=True)
-
-        numeric_columns = df.select_dtypes(include=[np.number]).columns
-        for col in numeric_columns:
+        num_cols = df.select_dtypes(include=[np.number]).columns
+        for col in num_cols:
             val = df[col].iloc[0]
             features[col] = float(val) if not pd.isna(val) else 0.0
 
@@ -170,84 +172,85 @@ def calculate_material_features(formula):
         return {"Formula": formula}
 
 
+required_descriptors = [
+    "MagpieData mean CovalentRadius",
+    "Temp",
+    "MagpieData avg_dev SpaceGroupNumber",
+    "0-norm",
+    "MagpieData mean MeltingT",
+    "MagpieData avg_dev Column",
+    "MagpieData mean NValence",
+]
+
+
 def filter_selected_features(features_dict, selected_descriptors, temperature):
     filtered = {"Temp": float(temperature)}
     for f in selected_descriptors:
-        if f == "Temp":
-            continue
-        filtered[f] = features_dict.get(f, 0.0)
+        if f != "Temp":
+            filtered[f] = features_dict.get(f, 0.0)
     return filtered
 
 
-# ---------------------------
-# 提交后执行
-# ---------------------------
+# ---------------------------------------------------
+# 🔹 主逻辑
+# ---------------------------------------------------
 if submit_button:
 
     if not formula_input:
         st.error("Please enter a valid chemical formula.")
+        st.stop()
+
+    # =======================
+    # 1. 显示晶体结构（新增）
+    # =======================
+    st.subheader("Crystal Structure (from Materials Project)")
+    cif_data = get_structure_cif(formula_input)
+
+    if cif_data:
+        show_structure_3d(cif_data)
     else:
+        st.warning("No structure found for this material in Materials Project.")
 
-        st.subheader("Crystal Structure (from Materials Project)")
+    # =======================
+    # 2. 特征工程 + 模型预测
+    # =======================
+    with st.spinner("Processing material and making predictions..."):
 
-        # ----------------------------
-        # 新增：查询晶体结构并显示 3D
-        # ----------------------------
-        structure = get_structure_from_mp(formula_input)
+        features = calculate_material_features(formula_input)
+        st.write(f"Total features extracted: {len(features)}")
 
-        if structure:
-            component = StructureMoleculeComponent(structure)
-            st.components.v1.html(component.to_html(), height=600)
-        else:
-            st.warning("No crystal structure found for this formula in Materials Project.")
+        selected_features = filter_selected_features(
+            features, required_descriptors, temperature
+        )
+        st.subheader("Material Features")
+        st.dataframe(pd.DataFrame([selected_features]))
 
-        # ----------------------------
-        # 原本的特征工程和预测流程
-        # ----------------------------
-        with st.spinner("Processing material and making predictions..."):
+        input_data = {"Formula": [formula_input], "Temp": [temperature]}
+        for f in required_descriptors:
+            if f != "Temp":
+                input_data[f] = [features.get(f, 0.0)]
+        input_df = pd.DataFrame(input_data)
 
-            features = calculate_material_features(formula_input)
-            st.write(f"✅ Total features extracted: {len(features)}")
+        # 模型预测
+        predictor = load_predictor()
+        models = [
+            "CatBoost",
+            "ExtraTreesMSE",
+            "LightGBM",
+            "KNeighborsDist",
+            "WeightedEnsemble_L2",
+            "XGBoost",
+        ]
 
-            selected_features = filter_selected_features(
-                features, required_descriptors, temperature
-            )
-            st.subheader("Material Features")
-            st.dataframe(pd.DataFrame([selected_features]))
-
-            # 构建预测输入
-            input_data = {"Formula": [formula_input], "Temp": [temperature]}
-            for f in required_descriptors:
-                if f != "Temp":
-                    input_data[f] = [features.get(f, 0.0)]
-
-            input_df = pd.DataFrame(input_data)
-
-            # 模型预测
+        results = {}
+        for m in models:
             try:
-                predictor = load_predictor()
-                essential_models = [
-                    "CatBoost",
-                    "ExtraTreesMSE",
-                    "LightGBM",
-                    "KNeighborsDist",
-                    "WeightedEnsemble_L2",
-                    "XGBoost",
-                ]
+                results[m] = predictor.predict(input_df, model=m)
+            except:
+                results[m] = "Error"
 
-                predictions_dict = {}
-                for model in essential_models:
-                    try:
-                        predictions = predictor.predict(input_df, model=model)
-                        predictions_dict[model] = predictions
-                    except Exception as e:
-                        predictions_dict[model] = "Error"
+        st.subheader("Prediction Results")
+        st.dataframe(pd.DataFrame(results).iloc[:1, :])
 
-                st.subheader("Prediction Results")
-                st.dataframe(pd.DataFrame(predictions_dict).iloc[:1, :])
-
-                del predictor
-                gc.collect()
-
-            except Exception as e:
-                st.error(f"Model loading failed: {e}")
+        del predictor
+        gc.collect()
