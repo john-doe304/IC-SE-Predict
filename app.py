@@ -9,20 +9,20 @@ from autogluon.tabular import TabularPredictor
 import tempfile
 import base64
 from io import BytesIO
-from autogluon.tabular import FeatureMetadata
 import gc
 import re
 from tqdm import tqdm
 import numpy as np
 
-# ========== 新增：晶体结构显示依赖 ==========
+# ========== 晶体结构依赖 ==========
 import py3Dmol
 from pymatgen.ext.matproj import MPRester
 
-# ========== Materials Project API KEY ==========
-MP_API_KEY = "Gd6Y2d9mtjquU8imu8n4GdIiwCvUtZqN"   # <-- 换成你自己的 API key
+# ======= Materials Project API KEY =======
+MP_API_KEY = "Gd6Y2d9mtjquU8imu8n4GdIiwCvUtZqN"
 
-# 页面样式
+
+# ===================== Streamlit 样式 =====================
 st.markdown(
     """
     <style>
@@ -68,7 +68,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# 输入区
+
+# ===================== 输入区 =====================
 formula_input = st.text_input(
     "Enter Chemical Formula of the Material:",
     placeholder="e.g., Li7La3Zr2O12, Li10GeP2S12, Li3YCl6",
@@ -90,41 +91,43 @@ def load_predictor():
     return TabularPredictor.load("./ag-20251024_075719")
 
 
-# ---------------------------------------------------
-# 🔹 从 Materials Project 获取晶体结构（新增功能）
-# ---------------------------------------------------
+# ====================================================================
+# 🔹 1. 从 Materials Project 获取晶体结构（稳定版 API）
+# ====================================================================
 def get_structure_cif(formula):
-    """从 Materials Project 查询晶体结构并返回 cif 字符串"""
     try:
         with MPRester(MP_API_KEY) as mpr:
-            results = mpr.summary.search(formula=formula)
-            if not results:
+            data = mpr.get_data(formula)
+            if not data:
                 return None
-            structure = results[0].structure
+
+            material_id = data[0]["material_id"]
+            structure = mpr.get_structure_by_material_id(material_id)
             cif_str = structure.to(fmt="cif")
             return cif_str
+
     except Exception as e:
         st.error(f"Failed to retrieve structure: {e}")
         return None
 
 
-# ---------------------------------------------------
-# 🔹 使用 Py3Dmol 渲染晶体结构（新增功能）
-# ---------------------------------------------------
+# ====================================================================
+# 🔹 2. 通过 py3Dmol 渲染晶体结构（Streamlit 完美兼容）
+# ====================================================================
 def show_structure_3d(cif_string):
-    """使用 py3Dmol 显示 3D 晶体结构"""
     view = py3Dmol.view(width=600, height=450)
     view.addModel(cif_string, "cif")
     view.setStyle({"stick": {}})
     view.addUnitCell()
     view.zoomTo()
-    
-    st.write(view._make_html(), unsafe_allow_html=True)
+
+    # 在 Streamlit 中必须使用 components.html 才能加载 3Dmol.js
+    st.components.v1.html(view._make_html(), height=500, scrolling=False)
 
 
-# ---------------------------------------------------
-# 🔹 特征计算
-# ---------------------------------------------------
+# ====================================================================
+# 🔹 3. 特征工程（保持原逻辑）
+# ====================================================================
 def calculate_material_features(formula):
     try:
         from matminer.featurizers.composition import (
@@ -148,7 +151,6 @@ def calculate_material_features(formula):
 
         ep = ElementProperty.from_preset("magpie")
         df = ep.featurize_dataframe(df, "composition", ignore_errors=True)
-
         df = Meredig().featurize_dataframe(df, "composition", ignore_errors=True)
         df = Stoichiometry().featurize_dataframe(
             df, "composition", ignore_errors=True
@@ -161,6 +163,7 @@ def calculate_material_features(formula):
         )
 
         num_cols = df.select_dtypes(include=[np.number]).columns
+
         for col in num_cols:
             val = df[col].iloc[0]
             features[col] = float(val) if not pd.isna(val) else 0.0
@@ -191,18 +194,16 @@ def filter_selected_features(features_dict, selected_descriptors, temperature):
     return filtered
 
 
-# ---------------------------------------------------
-# 🔹 主逻辑
-# ---------------------------------------------------
+# ====================================================================
+# 🔹 4. 主逻辑
+# ====================================================================
 if submit_button:
 
     if not formula_input:
         st.error("Please enter a valid chemical formula.")
         st.stop()
 
-    # =======================
-    # 1. 显示晶体结构（新增）
-    # =======================
+    # ===================== 显示晶体结构 =====================
     st.subheader("Crystal Structure (from Materials Project)")
     cif_data = get_structure_cif(formula_input)
 
@@ -211,9 +212,7 @@ if submit_button:
     else:
         st.warning("No structure found for this material in Materials Project.")
 
-    # =======================
-    # 2. 特征工程 + 模型预测
-    # =======================
+    # ===================== 特征 + 预测 =====================
     with st.spinner("Processing material and making predictions..."):
 
         features = calculate_material_features(formula_input)
@@ -231,8 +230,8 @@ if submit_button:
                 input_data[f] = [features.get(f, 0.0)]
         input_df = pd.DataFrame(input_data)
 
-        # 模型预测
         predictor = load_predictor()
+
         models = [
             "CatBoost",
             "ExtraTreesMSE",
@@ -254,4 +253,3 @@ if submit_button:
 
         del predictor
         gc.collect()
-
