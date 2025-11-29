@@ -2,26 +2,21 @@ import streamlit as st
 from rdkit import Chem
 from rdkit.Chem import Descriptors, Draw, AllChem
 from rdkit.Chem.Draw import MolDraw2DSVG
-from rdkit.ML.Descriptors import MoleculeDescriptors
 from mordred import Calculator, descriptors
 import pandas as pd
 from autogluon.tabular import TabularPredictor
-import tempfile
-import base64
-from io import BytesIO
 import gc
-import re
-from tqdm import tqdm
 import numpy as np
+import re
 
-# ========== 晶体结构依赖 ==========
+# crystal structure
 import py3Dmol
 from pymatgen.ext.matproj import MPRester
 from pymatgen.core import Structure
 
-# ======= Materials Project API KEY =======
-# 如果你有自己的 API key，请替换下面的值；保密处理请不要公开分享 Key
+# ========= Materials Project API KEY ==========
 MP_API_KEY = "Gd6Y2d9mtjquU8imu8n4GdIiwCvUtZqN"
+
 
 # ===================== Streamlit 样式 =====================
 st.markdown(
@@ -86,76 +81,63 @@ temperature = st.number_input(
 submit_button = st.button("Submit and Predict")
 
 
+# ===================== 模型缓存 =====================
 @st.cache_resource(show_spinner=False)
 def load_predictor():
-    # 请确认模型目录存在且包含训练好的 predictor
     return TabularPredictor.load("./ag-20251024_075719")
 
 
 # ====================================================================
-# 🔹 1. 从 Materials Project 获取晶体结构（多方法尝试，增强兼容性）
+# 🔹 1. 统一 API 获取晶体结构（保证与 Materials Project 一致）
 # ====================================================================
 def get_structure_cif(formula):
     """
-    尝试使用多种常见 MPRester 接口来获取结构并返回 cif 字符串。
-    兼容不同 pymatgen 版本。
+    尝试从 Materials Project 获取结构（多种 fallback）
+    返回 cif 字符串
     """
     try:
         with MPRester(MP_API_KEY) as mpr:
-            # 1) 尝试 summary.search（某些版本可用）
+
+            # 第一优先：summary.search（新 API）
             try:
                 if hasattr(mpr, "summary") and hasattr(mpr.summary, "search"):
                     res = mpr.summary.search(formula=formula)
                     if res:
-                        # res 元素可能有 .structure 或 .entry
-                        first = res[0]
-                        if hasattr(first, "structure"):
-                            return first.structure.to(fmt="cif")
-                        # 有些版本返回 dict-like summary
-                        if isinstance(first, dict) and "material_id" in first:
-                            mid = first["material_id"]
-                            struct = mpr.get_structure_by_material_id(mid)
-                            return struct.to(fmt="cif")
+                        s = res[0].structure
+                        return s.to(fmt="cif")
             except Exception:
-                # 忽略并尝试下一种方法
                 pass
 
-            # 2) 尝试 mpr.query（常见且稳定）
+            # 第二优先：query（经典）
             try:
-                if hasattr(mpr, "query"):
-                    query_res = mpr.query(criteria={"formula": formula}, properties=["material_id"])
-                    if query_res:
-                        mid = query_res[0].get("material_id")
-                        if mid:
-                            struct = mpr.get_structure_by_material_id(mid)
-                            return struct.to(fmt="cif")
+                query = mpr.query(
+                    criteria={"formula": formula},
+                    properties=["material_id"]
+                )
+                if query:
+                    mid = query[0]["material_id"]
+                    s = mpr.get_structure_by_material_id(mid)
+                    return s.to(fmt="cif")
             except Exception:
                 pass
 
-            # 3) 尝试 get_entries（有时可用）
+            # 第三优先：entries
             try:
-                if hasattr(mpr, "get_entries"):
-                    entries = mpr.get_entries(formula)
-                    if entries:
-                        entry = entries[0]
-                        if hasattr(entry, "structure"):
-                            return entry.structure.to(fmt="cif")
+                entries = mpr.get_entries(formula)
+                if entries:
+                    s = entries[0].structure
+                    return s.to(fmt="cif")
             except Exception:
                 pass
 
-            # 4) 最后尝试 get_structures_by_formula（某些 pymatgen 版本提供该方法）
+            # 第四：get_structures（非常新）
             try:
-                if hasattr(mpr, "get_structures"):
-                    structs = mpr.get_structures(formula)
-                    if structs:
-                        s0 = structs[0]
-                        if isinstance(s0, Structure):
-                            return s0.to(fmt="cif")
-                        # 有时返回 dict/list 中包含 structure
+                structs = mpr.get_structures(formula)
+                if structs:
+                    return structs[0].to(fmt="cif")
             except Exception:
                 pass
 
-            # 若所有方式均失败，返回 None
             return None
 
     except Exception as e:
@@ -164,20 +146,26 @@ def get_structure_cif(formula):
 
 
 # ====================================================================
-# 🔹 2. 通过 py3Dmol 渲染晶体结构（Streamlit 完整兼容）
+# 🔹 2. 渲染晶体结构（完全还原 Materials Project 风格：sphere + stick）
 # ====================================================================
 def show_structure_3d(cif_string, width=700, height=520):
     """
-    在 Streamlit 中显示 py3Dmol 生成的 3D 视图。
-    注意：不要使用 view.show()（Jupyter 专用），而是通过 HTML 注入。
+    使用 py3Dmol 渲染晶体结构
+    完整展示晶胞 + 球棍模型（与 Materials Project 最相似）
     """
     try:
         view = py3Dmol.view(width=width, height=height)
         view.addModel(cif_string, "cif")
-        # 你可以更改展示样式：'stick','sphere','line','cartoon' 等
-        view.setStyle({"stick": {}})
+
+        # —— 完整球棍模型（与 Materials Project 最接近） ——
+        view.setStyle({
+            "sphere": {"scale": 0.28},     # 原子球大小
+            "stick": {"radius": 0.15}      # 键半径
+        })
+
         view.addUnitCell()
         view.zoomTo()
+
         html = view._make_html()
         st.components.v1.html(html, height=height + 20, scrolling=False)
     except Exception as e:
@@ -190,14 +178,10 @@ def show_structure_3d(cif_string, width=700, height=520):
 def calculate_material_features(formula):
     try:
         from matminer.featurizers.composition import (
-            ElementProperty,
-            Meredig,
-            Stoichiometry,
-            IonProperty,
+            ElementProperty, Meredig, Stoichiometry, IonProperty
         )
         from matminer.featurizers.conversions import (
-            StrToComposition,
-            CompositionToOxidComposition,
+            StrToComposition, CompositionToOxidComposition
         )
 
         df = pd.DataFrame({"Formula": [formula]})
@@ -211,9 +195,8 @@ def calculate_material_features(formula):
         ep = ElementProperty.from_preset("magpie")
         df = ep.featurize_dataframe(df, "composition", ignore_errors=True)
         df = Meredig().featurize_dataframe(df, "composition", ignore_errors=True)
-        df = Stoichiometry().featurize_dataframe(
-            df, "composition", ignore_errors=True
-        )
+        df = Stoichiometry().featurize_dataframe(df, "composition", ignore_errors=True)
+
         df = CompositionToOxidComposition().featurize_dataframe(
             df, "composition", ignore_errors=True
         )
@@ -245,16 +228,16 @@ required_descriptors = [
 ]
 
 
-def filter_selected_features(features_dict, selected_descriptors, temperature):
-    filtered = {"Temp": float(temperature)}
-    for f in selected_descriptors:
+def filter_selected_features(features, selected, temperature):
+    result = {"Temp": float(temperature)}
+    for f in selected:
         if f != "Temp":
-            filtered[f] = features_dict.get(f, 0.0)
-    return filtered
+            result[f] = features.get(f, 0.0)
+    return result
 
 
 # ====================================================================
-# 🔹 4. 主逻辑（整合显示 + 特征 + 预测）
+# 🔹 4. 主逻辑（结构 + 特征 + 预测）
 # ====================================================================
 if submit_button:
 
@@ -262,41 +245,44 @@ if submit_button:
         st.error("Please enter a valid chemical formula.")
         st.stop()
 
-    # ===================== 显示晶体结构 =====================
+    # ========== 显示晶体结构 ==========
     st.subheader("Crystal Structure (from Materials Project)")
+
     cif_data = get_structure_cif(formula_input)
 
     if cif_data:
         show_structure_3d(cif_data)
     else:
-        st.warning("No structure found for this material in Materials Project.")
+        st.warning("No structure found for this formula in Materials Project.")
 
-    # ===================== 特征 + 预测 =====================
+    # ========== 特征 + 预测 ==========
     with st.spinner("Processing material and making predictions..."):
 
         features = calculate_material_features(formula_input)
         st.write(f"Total features extracted: {len(features)}")
 
-        selected_features = filter_selected_features(
+        selected = filter_selected_features(
             features, required_descriptors, temperature
         )
-        st.subheader("Material Features")
-        st.dataframe(pd.DataFrame([selected_features]))
 
+        st.subheader("Material Features")
+        st.dataframe(pd.DataFrame([selected]))
+
+        # prepare ML input
         input_data = {"Formula": [formula_input], "Temp": [temperature]}
         for f in required_descriptors:
             if f != "Temp":
                 input_data[f] = [features.get(f, 0.0)]
         input_df = pd.DataFrame(input_data)
 
-        # 模型预测
+        # 预测部分
         try:
             predictor = load_predictor()
-        except Exception as e:
-            st.error(f"Failed to load predictor: {e}")
+        except:
             predictor = None
+            st.error("Failed to load predictor.")
 
-        if predictor is not None:
+        if predictor:
             models = [
                 "CatBoost",
                 "ExtraTreesMSE",
@@ -305,12 +291,12 @@ if submit_button:
                 "WeightedEnsemble_L2",
                 "XGBoost",
             ]
-
             results = {}
+
             for m in models:
                 try:
                     results[m] = predictor.predict(input_df, model=m)
-                except Exception:
+                except:
                     results[m] = "Error"
 
             st.subheader("Prediction Results")
@@ -318,5 +304,3 @@ if submit_button:
 
             del predictor
             gc.collect()
-        else:
-            st.error("Predictor unavailable; cannot generate predictions.")
