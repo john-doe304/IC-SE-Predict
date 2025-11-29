@@ -97,83 +97,158 @@ def get_structure_cif(formula):
     """
     try:
         with MPRester(MP_API_KEY) as mpr:
-
-            # 第一优先：summary.search（新 API）
+            # 第一优先：使用 get_structure_by_material_id 通过 material_id 获取
             try:
-                if hasattr(mpr, "summary") and hasattr(mpr.summary, "search"):
-                    res = mpr.summary.search(formula=formula)
-                    if res:
-                        s = res[0].structure
-                        return s.to(fmt="cif")
-            except Exception:
-                pass
-
-            # 第二优先：query（经典）
-            try:
-                query = mpr.query(
+                # 先搜索获取 material_id
+                results = mpr.query(
                     criteria={"formula": formula},
-                    properties=["material_id"]
+                    properties=["material_id", "pretty_formula", "spacegroup.symbol"]
                 )
-                if query:
-                    mid = query[0]["material_id"]
-                    s = mpr.get_structure_by_material_id(mid)
-                    return s.to(fmt="cif")
-            except Exception:
-                pass
+                if results:
+                    # 获取第一个匹配的 material_id
+                    material_id = results[0]["material_id"]
+                    st.info(f"Found material: {results[0]['pretty_formula']} ({material_id}) - Space Group: {results[0]['spacegroup.symbol']}")
+                    
+                    # 使用 material_id 获取精确结构
+                    structure = mpr.get_structure_by_material_id(material_id)
+                    return structure.to(fmt="cif"), material_id
+            except Exception as e:
+                st.warning(f"Method 1 failed: {e}")
 
-            # 第三优先：entries
+            # 第二优先：entries
             try:
                 entries = mpr.get_entries(formula)
                 if entries:
-                    s = entries[0].structure
-                    return s.to(fmt="cif")
-            except Exception:
-                pass
+                    structure = entries[0].structure
+                    material_id = entries[0].entry_id
+                    st.info(f"Found material via entries: {material_id}")
+                    return structure.to(fmt="cif"), material_id
+            except Exception as e:
+                st.warning(f"Method 2 failed: {e}")
 
-            # 第四：get_structures（非常新）
-            try:
-                structs = mpr.get_structures(formula)
-                if structs:
-                    return structs[0].to(fmt="cif")
-            except Exception:
-                pass
-
-            return None
+            return None, None
 
     except Exception as e:
         st.error(f"Failed to retrieve structure: {e}")
-        return None
+        return None, None
 
 
 # ====================================================================
-# 🔹 2. 渲染晶体结构（完全还原 Materials Project 风格：sphere + stick）
+# 🔹 2. 渲染晶体结构（Materials Project 风格：球棍模型 + 晶胞）
 # ====================================================================
-def show_structure_3d(cif_string, width=700, height=520):
+def show_structure_3d(cif_string, material_id=None, width=700, height=520):
     """
-    使用 py3Dmol 渲染晶体结构
-    完整展示晶胞 + 球棍模型（与 Materials Project 最相似）
+    使用 py3Dmol 渲染晶体结构，接近 Materials Project 风格
     """
     try:
         view = py3Dmol.view(width=width, height=height)
         view.addModel(cif_string, "cif")
-
-        # —— 完整球棍模型（与 Materials Project 最接近） ——
-        view.setStyle({
-            "sphere": {"scale": 0.28},     # 原子球大小
-            "stick": {"radius": 0.15}      # 键半径
+        
+        # Materials Project 风格的原子颜色映射
+        element_colors = {
+            'H': 'white', 'He': 'cyan', 'Li': 'violet', 'Be': 'darkgreen', 
+            'B': 'salmon', 'C': 'black', 'N': 'blue', 'O': 'red', 
+            'F': 'green', 'Ne': 'cyan', 'Na': 'yellow', 'Mg': 'darkgreen', 
+            'Al': 'darkgray', 'Si': 'goldenrod', 'P': 'orange', 'S': 'yellow', 
+            'Cl': 'green', 'Ar': 'cyan', 'K': 'violet', 'Ca': 'darkgreen', 
+            'Sc': 'darkgray', 'Ti': 'darkgray', 'V': 'darkgray', 'Cr': 'darkgray', 
+            'Mn': 'darkgray', 'Fe': 'orange', 'Co': 'darkgray', 'Ni': 'darkgreen', 
+            'Cu': 'darkorange', 'Zn': 'darkgreen', 'Ga': 'darkgray', 'Ge': 'goldenrod', 
+            'As': 'darkgray', 'Se': 'yellow', 'Br': 'darkred', 'Kr': 'cyan', 
+            'Rb': 'violet', 'Sr': 'darkgreen', 'Y': 'darkgray', 'Zr': 'darkgray', 
+            'Nb': 'darkgray', 'Mo': 'darkgray', 'Tc': 'darkgray', 'Ru': 'darkgray', 
+            'Rh': 'darkgray', 'Pd': 'darkgray', 'Ag': 'darkgray', 'Cd': 'darkgreen', 
+            'In': 'darkgray', 'Sn': 'darkgray', 'Sb': 'darkgray', 'Te': 'darkgray', 
+            'I': 'darkviolet', 'Xe': 'cyan', 'Cs': 'violet', 'Ba': 'darkgreen', 
+            'La': 'darkgray', 'Ce': 'darkgray', 'Pr': 'darkgray', 'Nd': 'darkgray', 
+            'Pm': 'darkgray', 'Sm': 'darkgray', 'Eu': 'darkgray', 'Gd': 'darkgray', 
+            'Tb': 'darkgray', 'Dy': 'darkgray', 'Ho': 'darkgray', 'Er': 'darkgray', 
+            'Tm': 'darkgray', 'Yb': 'darkgray', 'Lu': 'darkgray', 'Hf': 'darkgray', 
+            'Ta': 'darkgray', 'W': 'darkgray', 'Re': 'darkgray', 'Os': 'darkgray', 
+            'Ir': 'darkgray', 'Pt': 'darkgray', 'Au': 'gold', 'Hg': 'darkgray', 
+            'Tl': 'darkgray', 'Pb': 'darkgray', 'Bi': 'darkgray', 'Po': 'darkgray', 
+            'At': 'darkgray', 'Rn': 'cyan', 'Fr': 'violet', 'Ra': 'darkgreen'
+        }
+        
+        # 设置 Materials Project 风格的渲染
+        view.setStyle({}, {
+            "sphere": {
+                "colorscheme": {
+                    # 使用自定义颜色映射
+                    "prop": "elem",
+                    "map": element_colors
+                },
+                "scale": 0.3  # 稍微调整球体大小
+            },
+            "stick": {
+                "radius": 0.12,  # 调整键的粗细
+                "colorscheme": {
+                    "prop": "elem",
+                    "map": element_colors
+                }
+            }
         })
-
-        view.addUnitCell()
+        
+        # 添加晶胞边界（Materials Project 风格）
+        view.addUnitCell({
+            "color": "black",
+            "radius": 0.05,
+            "dashed": True
+        })
+        
+        # 设置背景和视角
+        view.setBackgroundColor(0xffffff)  # 白色背景
+        
+        # 自动调整视角到最佳位置
         view.zoomTo()
-
+        
+        # 稍微旋转以获得更好的3D视角
+        view.rotate(90, 'x')
+        view.rotate(30, 'y')
+        
+        # 显示 material_id
+        if material_id:
+            st.info(f"**Material ID:** {material_id}")
+        
+        # 渲染
         html = view._make_html()
         st.components.v1.html(html, height=height + 20, scrolling=False)
+        
     except Exception as e:
         st.error(f"3D visualization error: {e}")
 
 
 # ====================================================================
-# 🔹 3. 特征工程（保持原逻辑）
+# 🔹 3. 获取材料详细信息
+# ====================================================================
+def get_material_details(material_id):
+    """
+    获取材料的详细信息
+    """
+    try:
+        with MPRester(MP_API_KEY) as mpr:
+            data = mpr.query(
+                criteria={"material_id": material_id},
+                properties=[
+                    "pretty_formula",
+                    "spacegroup.symbol",
+                    "spacegroup.number",
+                    "crystal_system",
+                    "volume",
+                    "density",
+                    "formation_energy_per_atom",
+                    "band_gap"
+                ]
+            )
+            if data:
+                return data[0]
+    except Exception as e:
+        st.warning(f"Could not fetch detailed material info: {e}")
+    return None
+
+
+# ====================================================================
+# 🔹 4. 特征工程（保持原逻辑）
 # ====================================================================
 def calculate_material_features(formula):
     try:
@@ -237,7 +312,7 @@ def filter_selected_features(features, selected, temperature):
 
 
 # ====================================================================
-# 🔹 4. 主逻辑（结构 + 特征 + 预测）
+# 🔹 5. 主逻辑（结构 + 特征 + 预测）
 # ====================================================================
 if submit_button:
 
@@ -248,10 +323,35 @@ if submit_button:
     # ========== 显示晶体结构 ==========
     st.subheader("Crystal Structure (from Materials Project)")
 
-    cif_data = get_structure_cif(formula_input)
+    with st.spinner("Fetching crystal structure from Materials Project..."):
+        cif_data, material_id = get_structure_cif(formula_input)
 
     if cif_data:
-        show_structure_3d(cif_data)
+        # 显示材料详细信息
+        if material_id:
+            details = get_material_details(material_id)
+            if details:
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Formula", details.get("pretty_formula", "N/A"))
+                    st.metric("Space Group", details.get("spacegroup.symbol", "N/A"))
+                with col2:
+                    st.metric("Crystal System", details.get("crystal_system", "N/A"))
+                    st.metric("Volume (Å³)", f"{details.get('volume', 0):.2f}")
+                with col3:
+                    st.metric("Density (g/cm³)", f"{details.get('density', 0):.2f}")
+                    st.metric("Band Gap (eV)", f"{details.get('band_gap', 0):.2f}")
+        
+        # 显示3D结构
+        show_structure_3d(cif_data, material_id)
+        
+        # 提供CIF文件下载
+        st.download_button(
+            label="📥 Download CIF File",
+            data=cif_data,
+            file_name=f"{formula_input.replace(' ', '_')}_{material_id or 'structure'}.cif",
+            mime="chemical/x-cif"
+        )
     else:
         st.warning("No structure found for this formula in Materials Project.")
 
@@ -259,7 +359,7 @@ if submit_button:
     with st.spinner("Processing material and making predictions..."):
 
         features = calculate_material_features(formula_input)
-        st.write(f"Total features extracted: {len(features)}")
+        st.write(f"✅ Total features extracted: {len(features)}")
 
         selected = filter_selected_features(
             features, required_descriptors, temperature
