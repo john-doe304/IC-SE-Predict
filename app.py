@@ -3,86 +3,93 @@ import numpy as np
 import pandas as pd
 from mp_api.client import MPRester
 from pymatgen.core import Structure
-from pymatgen.vis.structure_3d import Structure3D
-import json
 
-# -----------------------------
-# Streamlit 页面基本设置
-# -----------------------------
-st.set_page_config(page_title="Crystal Viewer", layout="wide")
+# -------------------------------------------
+# Streamlit 基本设置
+# -------------------------------------------
+st.set_page_config(page_title="Crystal Structure Viewer", layout="wide")
 st.title("🔬 Crystal Structure Viewer (Materials Project)")
 
-API_KEY = st.text_input("请输入你的 Materials Project API Key（必填）", type="password")
+# 输入 API Key 和 MP 材料 ID
+api_key = st.text_input("请输入 Materials Project API Key（必填）", type="password")
+mp_id = st.text_input("请输入 Materials Project ID，例如：mp-942733")
 
-mp_id = st.text_input("输入材料的 Materials Project ID，例如：mp-149（Si）")
 
-# =============================
-# 获取结构函数
-# =============================
-def fetch_structure(mp_id: str, api_key: str):
+# ======================================================
+# 函数：从 Materials Project 获取结构
+# ======================================================
+def fetch_structure(mp_id, api_key):
     try:
         with MPRester(api_key) as mpr:
             structure = mpr.get_structure_by_material_id(mp_id)
-        # 标准化晶胞，让结构更“端正”
-        structure = structure.get_primitive_structure()
+
+        # 标准化晶体结构，让渲染更接近 MP
         structure = structure.get_reduced_structure()
+        structure = structure.get_primitive_structure()
+
         return structure
+
     except Exception as e:
-        st.error(f"❌ 获取结构失败：{e}")
+        st.error(f"❌ 结构获取失败：{e}")
         return None
 
 
-# =============================
-# 颜色生成：按元素固定颜色
-# =============================
+# ======================================================
+# 颜色：按元素固定颜色（稳定渲染）
+# ======================================================
 def get_element_colors(structure):
-    """
-    按元素生成颜色，统一用于 3Dmol 和图例
-    """
-    unique_elements = sorted({str(site.specie) for site in structure})
-    cmap = {}
-    np.random.seed(42)
+    elements = sorted({str(site.specie) for site in structure})
+    color_map = {}
 
-    for elem in unique_elements:
-        # 生成稳定固定的颜色
-        r = np.random.randint(100, 255)
-        g = np.random.randint(80, 255)
-        b = np.random.randint(80, 255)
-        cmap[elem] = f"#{r:02X}{g:02X}{b:02X}"
+    # 固定随机种子 → 每次颜色一致
+    np.random.seed(2025)
 
-    return cmap
+    for elem in elements:
+        r = np.random.randint(60, 230)
+        g = np.random.randint(60, 230)
+        b = np.random.randint(60, 230)
+        color_map[elem] = f"#{r:02X}{g:02X}{b:02X}"
+
+    return color_map
 
 
-# =============================
-# 3Dmol.js 渲染函数
-# =============================
+# ======================================================
+# 渲染晶体结构（使用 3Dmol.js）
+# ======================================================
 def render_structure(structure, color_map):
     struct_json = structure.to_json()
 
-    script = f"""
-        <div id="container" style="width: 100%; height: 500px;"></div>
-        <script>
-            let structData = {struct_json};
+    html = f"""
+        <div id="viewer" style="width: 100%; height: 500px;"></div>
 
-            let viewer = $3Dmol.createViewer('container', {{
-                backgroundColor: 'white'
+        <script>
+            // 初始化 3Dmol Viewer
+            var viewer = $3Dmol.createViewer("viewer", {{
+                backgroundColor: "white"
             }});
 
-            let atoms = structData['sites'];
+            let struct = {struct_json};
 
-            atoms.forEach(site => {{
-                let pos = site['abc'];
-                let elem = site['label'];
+            // 添加原子球体
+            struct.sites.forEach(site => {{
+                let pos = site.xyz;
+                let elem = site.label;
 
                 viewer.addSphere({{
-                    center: {{
-                        x: pos[0],
-                        y: pos[1],
-                        z: pos[2]
-                    }},
-                    radius: 0.4,
+                    center: {{x: pos[0], y: pos[1], z: pos[2]}},
+                    radius: 0.45,
                     color: "{color_map.get(elem, "#FF0000")}"
                 }});
+            }});
+
+            // 晶胞框
+            let matrix = struct.lattice.matrix;
+            viewer.addUnitCell({{
+                a: matrix[0],
+                b: matrix[1],
+                c: matrix[2],
+                color: "black",
+                linewidth: 1.2
             }});
 
             viewer.zoomTo();
@@ -90,44 +97,49 @@ def render_structure(structure, color_map):
         </script>
     """
 
-    st.components.v1.html(script, height=520)
+    st.components.v1.html(html, height=500)
 
 
-# =============================
-# 图例 HTML 生成
-# =============================
-def create_legend(color_map):
-    html = """
-    <div style="display:flex; flex-direction:column; align-items:flex-start; margin-top:10px;">
+# ======================================================
+# 图例生成（类似 Materials Project 右下角）
+# ======================================================
+def render_legend(color_map):
+    legend_html = """
+        <div style="position: relative; margin-top: 15px;">
     """
 
     for elem, color in color_map.items():
-        html += f"""
-        <div style="display:flex; align-items:center; margin:3px;">
-            <span style="width:16px; height:16px; background:{color}; 
-                         display:inline-block; border-radius:50%; margin-right:8px;"></span>
-            <span style="font-size:16px;">{elem}</span>
-        </div>
+        legend_html += f"""
+            <div style="display: flex; align-items: center; margin: 6px;">
+                <div style="
+                    width: 16px;
+                    height: 16px;
+                    border-radius: 50%;
+                    background: {color};
+                    margin-right: 8px;
+                "></div>
+                <span style="font-size: 15px;">{elem}</span>
+            </div>
         """
 
-    html += "</div>"
-    return html
+    legend_html += "</div>"
+    st.markdown(legend_html, unsafe_allow_html=True)
 
 
-# =============================
-# 主按钮执行
-# =============================
-if st.button("🔍 获取并显示晶体结构"):
-    if not API_KEY or not mp_id:
-        st.warning("⚠ 请填入 API Key 和 MP ID")
+# ======================================================
+# 主程序按钮
+# ======================================================
+if st.button("📦 显示晶体结构"):
+    if not api_key or not mp_id:
+        st.warning("⚠ 请先输入 API Key 和材料 ID")
     else:
-        structure = fetch_structure(mp_id, API_KEY)
+        structure = fetch_structure(mp_id, api_key)
+
         if structure:
-            st.subheader("📦 Crystal Structure (3D Viewer)")
-            
+            st.subheader("📡 Crystal Structure from Materials Project")
             color_map = get_element_colors(structure)
 
             render_structure(structure, color_map)
 
             st.subheader("🎨 元素颜色图例")
-            st.markdown(create_legend(color_map), unsafe_allow_html=True)
+            render_legend(color_map)
