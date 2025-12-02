@@ -1,77 +1,304 @@
-# app.py — 完整版（formula 查询 + conventional cell + py3Dmol 可视化 + 元素图例 + 特征+预测）
+# app.py — 完整版（formula 查询 + conventional cell + py3Dmol 可视化）
+# 包含：Materials Project 官方配色、polyhedral（近似）、supercell、旋转动画、透明度、线框模式
 import streamlit as st
+import numpy as np
+import pandas as pd
+import json
+import gc
+import re
+from io import BytesIO
+
+# RDKit / Mordred / AutoGluon (保留你原来的流程)
 from rdkit import Chem
 from rdkit.Chem import Descriptors, Draw, AllChem
 from rdkit.Chem.Draw import MolDraw2DSVG
 from mordred import Calculator, descriptors
-import pandas as pd
 from autogluon.tabular import TabularPredictor
-import tempfile
-import base64
-from io import BytesIO
-import gc
-import re
-from tqdm import tqdm
-import numpy as np
 
-# ========== 晶体结构依赖 ==========
+# 结构相关
 import py3Dmol
 from pymatgen.ext.matproj import MPRester
-from pymatgen.core import Structure
+from pymatgen.core import Structure, Element
+from pymatgen.analysis.local_env import VoronoiNN
 
-# ======= Materials Project API KEY =======
-# 把这里换成你的 API KEY（不要公开分享）
-MP_API_KEY = "Gd6Y2d9mtjquU8imu8n4GdIiwCvUtZqN"
+# ========== Materials Project API KEY ==========
+MP_API_KEY = "Gd6Y2d9mtjquU8imu8n4GdIiwCvUtZqN"  # 请改为你的 Key（不要公开）
 
-# ===================== Streamlit 页面样式 =====================
-st.set_page_config(page_title="Solid Electrolyte Predictor", layout="centered")
-st.markdown(
-    """
+# ========== UI 配置 ==========
+st.set_page_config(page_title="Solid Electrolyte Viewer + Predictor", layout="wide")
+st.markdown("""
     <style>
-    .stApp {
-        border: 2px solid #808080;
-        border-radius: 16px;
-        margin: 24px auto;
-        max-width: 980px;
-        background-color: #ffffff;
-        padding: 18px;
-        box-sizing: border-box;
-    }
-    .legend-row { display:flex; flex-wrap:wrap; gap:12px; justify-content:flex-end; align-items:center; }
-    .legend-item { display:flex; align-items:center; gap:8px; font-size:14px; }
-    .legend-circle { width:14px; height:14px; border-radius:50%; border:1px solid #222; display:inline-block; }
+    .stApp { max-width: 1100px; margin: 20px auto; padding: 16px; }
+    .legend-row { display:flex; gap:12px; flex-wrap:wrap; justify-content:flex-end; margin-top:6px; }
+    .legend-item { display:flex; gap:8px; align-items:center; font-size:14px; }
     </style>
-    """,
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
 
-st.markdown(
-    """
-    <div style="text-align:center; margin-bottom:8px;">
-        <h2 style="margin:6px 0;">Predict Ionic Conductivity of Solid Electrolytes</h2>
-        <div style="color:#555;">Enter a chemical formula below to fetch structure from Materials Project and predict ionic conductivity.</div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+st.title("🔬 Solid Electrolyte Viewer & Ionic Conductivity Predictor")
 
-# ===================== 输入区 =====================
-formula_input = st.text_input(
-    "Enter Chemical Formula of the Material:",
-    placeholder="e.g., Li7La3Zr2O12, Li10GeP2S12, Li3YCl6",
-)
+# ================= Input =================
+formula_input = st.text_input("Enter Chemical Formula (formula query to Materials Project)", "Li7La3Zr2O12")
+temperature = st.number_input("Temperature (K)", min_value=200, max_value=1000, value=298, step=1)
 
-temperature = st.number_input(
-    "Select Temperature (K):",
-    min_value=200,
-    max_value=1000,
-    value=298,
-    step=10,
-)
+# visualization options (you asked for UI controls)
+col1, col2, col3 = st.columns(3)
+with col1:
+    show_supercell = st.checkbox("Show 2×2×2 supercell", value=False)
+    show_polyhedra = st.checkbox("Show polyhedra (approx)", value=False)
+with col2:
+    enable_spin = st.checkbox("Enable rotation animation", value=False)
+    wireframe_mode = st.checkbox("Wireframe mode", value=False)
+with col3:
+    opacity = st.slider("Atom opacity (0-1)", min_value=0.0, max_value=1.0, value=1.0, step=0.05)
+    stick_opacity = st.slider("Bond opacity (0-1)", min_value=0.0, max_value=1.0, value=1.0, step=0.05)
 
 submit_button = st.button("Submit and Predict")
 
-# 指定的描述符列表 - 你选择的七个特征
+# ========== AutoGluon model cache ==========
+@st.cache_resource(show_spinner=False)
+def load_predictor():
+    try:
+        return TabularPredictor.load("./ag-20251024_075719")
+    except Exception as e:
+        st.warning(f"Cannot load predictor: {e}")
+        return None
+
+# ========== Materials Project 官方色表（接近 MP 风格） ==========
+# 这是一个接近 MP 的配色映射（取自常见 MP 颜色配置）
+MP_COLOR_MAP = {
+    "H": "#FFFFFF","Li":"#CC80FF","Be":"#C2FF00","B":"#FFB5B5","C":"#909090","N":"#3050F8","O":"#FF0D0D",
+    "F":"#90E050","Na":"#AB5CF2","Mg":"#8AFF00","Al":"#BFA6A6","Si":"#F0C8A0","P":"#FF8000","S":"#FFFF30",
+    "Cl":"#1FF01F","K":"#8F40D4","Ca":"#AFFF8F","Sc":"#BFC2C7","Ti":"#BFC2C7","V":"#A6A6AB","Cr":"#8A99C7",
+    "Mn":"#9C7AC7","Fe":"#E06633","Co":"#F090A0","Ni":"#50D050","Cu":"#C88033","Zn":"#7D80B0","Ga":"#C28F8F",
+    "Ge":"#668C8C","As":"#BD80E3","Se":"#FFA100","Br":"#A62929","Kr":"#5CB8D1","Rb":"#702EB0","Sr":"#00FF00",
+    "Y":"#94FFFF","Zr":"#94E0E0","Nb":"#73C2C9","Mo":"#54B5B5","Tc":"#3B9E9E","Ru":"#248F8F","Rh":"#0A7B7B",
+    "Pd":"#006985","Ag":"#C0C0C0","Cd":"#FFD98F","In":"#A67573","Sn":"#668080","Sb":"#9E63A6","Te":"#D47A00",
+    "I":"#940094","Xe":"#429EB0","Cs":"#57178F","Ba":"#00C1FF","La":"#70D4FF","Ce":"#FFFFC7","Pr":"#D9FFC7",
+    "Nd":"#C7FFC7","Pm":"#A3FFC7","Sm":"#8FFFC7","Eu":"#61FFC7","Gd":"#45FFC7","Tb":"#30FFC7","Dy":"#1FFFC7",
+    "Ho":"#00FF9C","Er":"#00E675","Tm":"#00D452","Yb":"#00BF38","Lu":"#00AB24","Hf":"#4DC2FF","Ta":"#4DA6FF",
+    "W":"#2194D6","Re":"#267DAB","Os":"#266696","Ir":"#175487","Pt":"#D0D0E0","Au":"#FFD123","Hg":"#B8B8D0",
+    "Tl":"#A6544D","Pb":"#575961","Bi":"#9E4FB5","Po":"#AB5C00","At":"#754F45","Rn":"#428296","Fr":"#420066",
+    "Ra":"#007D00","Ac":"#70ABFA","Th":"#00BAFF","Pa":"#00A1FF","U":"#008FFF","Np":"#0080FF","Pu":"#006B9A"
+}
+def mp_color(element):
+    return MP_COLOR_MAP.get(element, "#BDBDBD")
+
+# ========== helper: build simplified structure dict for JS ==========
+def structure_to_minimal_dict(struct: Structure):
+    """
+    Convert pymatgen Structure to a JSON-friendly simple dict used in JS:
+    - sites: list of {"xyz":[x,y,z], "element":"Li"}
+    - lattice: 3x3 matrix
+    """
+    sites = []
+    for site in struct.sites:
+        sites.append({"xyz": [float(x) for x in site.coords], "element": str(site.specie)})
+    lattice = [[float(x) for x in row] for row in struct.lattice.matrix]
+    return {"sites": sites, "lattice": lattice}
+
+# ========== helper: detect bonds by covalent radii (python side) ==========
+def detect_bonds(struct: Structure, scale_factor=1.2):
+    """
+    Return list of (i,j) bonds indices by comparing distances to covalent radii (sum * scale_factor).
+    Use pymatgen Element.covalent_radius (in angstroms).
+    """
+    bonds = []
+    n = len(struct.sites)
+    radii = []
+    for s in struct.sites:
+        try:
+            r = Element(str(s.specie)).covalent_radius
+            if r is None or np.isnan(r):
+                r = 0.75
+        except Exception:
+            r = 0.75
+        radii.append(r)
+
+    for i in range(n):
+        for j in range(i+1, n):
+            d = struct.get_distance(i, j)
+            cutoff = (radii[i] + radii[j]) * scale_factor
+            if d <= cutoff and d > 0.2:
+                bonds.append((i, j))
+    return bonds
+
+# ========== helper: find coordination (VoronoiNN) ==========
+vn = VoronoiNN(voronoi_tol=0.0)
+def get_coordination_list(struct: Structure, max_nn=12):
+    """
+    For each site, return list of neighbor site indices (according to VoronoiNN)
+    This is somewhat robust for polyhedral detection.
+    """
+    coord_lists = []
+    for i, site in enumerate(struct.sites):
+        try:
+            nn = vn.get_nn_info(struct, i)
+            # nn is list of dicts with 'site_index' key
+            neighbors = [int(d['site_index']) for d in nn if 'site_index' in d]
+            coord_lists.append(neighbors[:max_nn])
+        except Exception:
+            # fallback: simple distance-based
+            neighbors = [j for j in range(len(struct.sites)) if j!=i and struct.get_distance(i,j) < 3.0]
+            coord_lists.append(neighbors)
+    return coord_lists
+
+# ========== main render function ========== 
+def render_py3dmol(struct: Structure, *,
+                   show_super=False,
+                   polyhedra=False,
+                   spin=False,
+                   atom_opacity=1.0,
+                   bond_opacity=1.0,
+                   wireframe=False,
+                   width=900, height=600):
+    """
+    Build a minimal dict (sites, lattice, bonds) and render using custom 3Dmol.js HTML.
+    Polyhedra is rendered as cylinders from central atom to coordinating oxygens and translucent small spheres at coordinating atoms.
+    Wireframe mode draws bonds as thin cylinders and hides big spheres.
+    """
+    # optionally expand to supercell
+    if show_super:
+        s = struct.copy()
+        s.make_supercell([2,2,2])
+    else:
+        s = struct
+
+    # compute bonds and coordination
+    bonds = detect_bonds(s, scale_factor=1.15)
+    coord = get_coordination_list(s)
+
+    minimal = structure_to_minimal_dict(s)
+    minimal['bonds'] = bonds
+    minimal['coord'] = coord
+
+    # choose per-element color map using MP color table
+    elements = sorted({site['element'] for site in minimal['sites']})
+    color_map = {el: mp_color(el) for el in elements}
+
+    struct_json = json.dumps(minimal)
+
+    # Build HTML with JS to build viewer and add primitives
+    # JS: add spheres, cylinders (bonds), polyhedron cylinders and translucent neighbor spheres, unit cell
+    js = f"""
+    <div id="viewer" style="width:100%; height:{height}px; position:relative;"></div>
+    <script>
+    (function() {{
+        let data = {struct_json};
+        let viewer = $3Dmol.createViewer('viewer', {{ backgroundColor: 'white' }});
+        viewer.clear();
+
+        // Disable automatic coloring: we'll manually color
+        // Add unit cell (converted from lattice vectors)
+        // lattice matrix: a,b,c as row vectors
+        let lattice = data.lattice;
+        // 3Dmol's addUnitCell expects a,b,c as arrays
+        viewer.addUnitCell({{a: lattice[0], b: lattice[1], c: lattice[2], color:'black', linewidth:1.0}});
+
+        // add atoms as spheres or small spheres depending on wireframe mode
+        for (let i=0;i<data.sites.length;i++) {{
+            let s = data.sites[i];
+            let el = s.element;
+            let pos = s.xyz;
+            let color = "{json.dumps(color_map)}"[0]; // placeholder (we'll use a map below)
+        }}
+
+        // create a color map in JS
+        let color_map = {json.dumps(color_map)};
+
+        // add atoms
+        for (let i=0;i<data.sites.length;i++) {{
+            let s = data.sites[i];
+            let el = s.element;
+            let pos = {{x: s.xyz[0], y: s.xyz[1], z: s.xyz[2]}};
+            let color = color_map[el] || "#BBBBBB";
+            if ({'true' if wireframe else 'false'}) {{
+                // wireframe: smaller spheres and thinner bonds
+                viewer.addSphere({{center: pos, radius: 0.18, color: color, opacity: {atom_opacity}}});
+            }} else {{
+                viewer.addSphere({{center: pos, radius: 0.45, color: color, opacity: {atom_opacity}}});
+            }}
+        }}
+
+        // add bonds (cylinders)
+        for (let k=0;k<data.bonds.length;k++) {{
+            let i = data.bonds[k][0], j = data.bonds[k][1];
+            let p1 = data.sites[i].xyz;
+            let p2 = data.sites[j].xyz;
+            let el1 = data.sites[i].element;
+            // color bond by average of two atom colors (simple approach)
+            let c1 = color_map[el1] || "#BBBBBB";
+            viewer.addCylinder({{start: {{x:p1[0],y:p1[1],z:p1[2]}}, end: {{x:p2[0],y:p2[1],z:p2[2]}} , radius: {'0.08' if wireframe else '0.15'}, color: c1, opacity: {bond_opacity} }});
+        }}
+
+        // polyhedra: for each site, draw cylinders to its neighbors (coord list)
+        if ({'true' if polyhedra else 'false'}) {{
+            for (let i=0;i<data.coord.length;i++) {{
+                let neighs = data.coord[i];
+                // heuristics: only show polyhedron if central element is metal-like (not O/Cl/S/P)
+                let central = data.sites[i].element;
+                // we'll show polyhedra for transition metals, lanthanoids, alkali/alkaline earth (simple rule: element length 1 and not O,S,Cl,P)
+                if (["O","S","Cl","P"].indexOf(central) >= 0) continue;
+                // draw translucent small spheres on neighbors and cylinders
+                for (let t=0;t<neighs.length;t++) {{
+                    let j = neighs[t];
+                    let p1 = data.sites[i].xyz;
+                    let p2 = data.sites[j].xyz;
+                    let elj = data.sites[j].element;
+                    let c = color_map[elj] || "#BBBBBB";
+                    // small translucent sphere
+                    viewer.addSphere({{center: {{x:p2[0],y:p2[1],z:p2[2]}}, radius:0.22, color: c, opacity: 0.18}});
+                    // cylinder from center to neighbor
+                    viewer.addCylinder({{start: {{x:p1[0],y:p1[1],z:p1[2]}}, end:{{x:p2[0],y:p2[1],z:p2[2]}} , radius:0.06, color: c, opacity: 0.22}});
+                }}
+            }}
+        }}
+
+        // If spin enabled:
+        if ({'true' if spin else 'false'}) {{
+            try {{ viewer.spin(true); }} catch(e){{ console.warn(e); }}
+        }}
+
+        viewer.zoomTo();
+        viewer.render();
+    }})();
+    </script>
+    """
+
+    # show via Streamlit
+    st.components.v1.html(js, height=height+40, scrolling=False)
+
+    # legend under the viewer - consistent colors
+    legend_html = '<div class="legend-row">'
+    for el, c in color_map.items():
+        legend_html += f'<div class="legend-item"><span style="width:14px;height:14px;border-radius:50%;background:{c};display:inline-block;border:1px solid #333;"></span><span>{el}</span></div>'
+    legend_html += '</div>'
+    st.markdown(legend_html, unsafe_allow_html=True)
+
+# ========== feature calculation (keeps your original approach) ==========
+def calculate_material_features(formula):
+    try:
+        from matminer.featurizers.composition import ElementProperty, Meredig, Stoichiometry, IonProperty
+        from matminer.featurizers.conversions import StrToComposition, CompositionToOxidComposition
+
+        df = pd.DataFrame({"Formula":[formula]})
+        df = StrToComposition().featurize_dataframe(df, "Formula", ignore_errors=True)
+        if "composition" not in df.columns:
+            return {"Formula": formula}
+        features = {"Formula": formula}
+        df = ElementProperty.from_preset("magpie").featurize_dataframe(df, "composition", ignore_errors=True)
+        df = Meredig().featurize_dataframe(df, "composition", ignore_errors=True)
+        df = Stoichiometry().featurize_dataframe(df, "composition", ignore_errors=True)
+        df = CompositionToOxidComposition().featurize_dataframe(df, "composition", ignore_errors=True)
+        df = IonProperty().featurize_dataframe(df, "composition_oxid", ignore_errors=True)
+        for col in df.select_dtypes(include=[np.number]).columns:
+            val = df[col].iloc[0]
+            features[col] = float(val) if not pd.isna(val) else 0.0
+        return features
+    except Exception as e:
+        st.warning(f"Feature calculation failed: {e}")
+        return {"Formula": formula}
+
+# 7 descriptors list (same as yours)
 required_descriptors = [
     'MagpieData mean CovalentRadius',
     'Temp',
@@ -82,359 +309,111 @@ required_descriptors = [
     'MagpieData mean NValence'
 ]
 
-# 缓存模型加载器以避免重复加载
-@st.cache_resource(show_spinner=False, max_entries=1)
-def load_predictor():
-    """缓存模型加载，避免重复加载导致内存溢出"""
-    try:
-        return TabularPredictor.load("./ag-20251024_075719")
-    except Exception as e:
-        st.warning(f"Cannot load predictor: {e}")
-        return None
-
-# ---------------------------
-# 元素颜色映射（可扩展）
-# 尽量与 Materials Project / common palettes 近似
-# ---------------------------
-DEFAULT_ELEMENT_COLORS = {
-    "Li": "#CC80FF",
-    "La": "#70D4FF",
-    "Zr": "#94E0E0",
-    "O": "#FF0D0D",
-    "Cl": "#1FF01F",
-    "Y": "#66CCFF",
-    "Ge": "#668C8C",
-    "P": "#FF8000",
-    "S": "#FFFF30",
-    "Mg": "#B5E8FF",
-    "Ca": "#AFFF8F",
-    "Ba": "#00C1FF",
-    # add more if needed; fallback will be grey
-}
-
-def get_color_for_element(elem):
-    return DEFAULT_ELEMENT_COLORS.get(elem, "#BDBDBD")
-
-
-# ====================================================================
-# 🔹 1. 从 Materials Project 获取晶体结构（优先返回 conventional cell）
-# ====================================================================
-def get_structure_cif(formula):
-    """
-    使用 pymatgen 的 MPRester 尝试多种方式获取结构，优先返回 conventional (standard) cell，
-    并将其轉換为 CIF 字符串。兼容不同 pymatgen 版本。
-    """
+# ================== helper: get structure from MP (try conventional cell) ==================
+def get_structure_by_formula_conventional(formula):
     try:
         with MPRester(MP_API_KEY) as mpr:
-            # 1) 新 API: mpr.materials.summary.search
+            # try summary.search
             try:
                 if hasattr(mpr, "summary") and hasattr(mpr.summary, "search"):
                     res = mpr.summary.search(formula=formula)
-                    if res:
+                    if res and len(res)>0:
+                        # pick first material
                         first = res[0]
-                        # some summary results include structure directly
                         if hasattr(first, "structure") and first.structure is not None:
                             struct = first.structure
                         else:
-                            # try material_id then structures endpoint
+                            # try material_id
                             matid = None
                             if isinstance(first, dict) and "material_id" in first:
                                 matid = first["material_id"]
                             elif hasattr(first, "material_id"):
                                 matid = first.material_id
                             if matid:
-                                # request structures endpoint and ask for conventional cell if supported
-                                try:
-                                    sdict = mpr.materials.structures.get(matid)
-                                    if isinstance(sdict, dict) and "structure" in sdict:
-                                        struct = Structure.from_dict(sdict["structure"])
-                                    else:
-                                        # maybe it's already a Structure object
-                                        struct = mpr.get_structure_by_material_id(matid)
-                                except Exception:
-                                    # fallback
-                                    struct = mpr.get_structure_by_material_id(matid)
-                        # try to get conventional standard cell if available
+                                struct = mpr.get_structure_by_material_id(matid)
+                        # try to get conventional cell if method available
                         try:
-                            struct_conv = struct.get_conventional_standard_structure()
-                            struct = struct_conv
-                        except Exception:
-                            # ignore if method not available
-                            pass
-                        return struct.to(fmt="cif")
-            except Exception:
-                pass
-
-            # 2) classic query
-            try:
-                if hasattr(mpr, "query"):
-                    query_res = mpr.query(criteria={"formula": formula}, properties=["material_id"])
-                    if query_res:
-                        mid = query_res[0].get("material_id")
-                        if mid:
-                            # try structures endpoint first (newer API)
-                            try:
-                                sdict = mpr.materials.structures.get(mid)
-                                if isinstance(sdict, dict) and "structure" in sdict:
-                                    struct = Structure.from_dict(sdict["structure"])
-                                else:
-                                    struct = mpr.get_structure_by_material_id(mid)
-                            except Exception:
-                                struct = mpr.get_structure_by_material_id(mid)
-                            try:
-                                struct_conv = struct.get_conventional_standard_structure()
-                                struct = struct_conv
-                            except Exception:
-                                pass
-                            return struct.to(fmt="cif")
-            except Exception:
-                pass
-
-            # 3) fallback get_entries
-            try:
-                if hasattr(mpr, "get_entries"):
-                    entries = mpr.get_entries(formula)
-                    if entries:
-                        entry = entries[0]
-                        if hasattr(entry, "structure"):
-                            struct = entry.structure
-                            try:
-                                struct_conv = struct.get_conventional_standard_structure()
-                                struct = struct_conv
-                            except Exception:
-                                pass
-                            return struct.to(fmt="cif")
-            except Exception:
-                pass
-
-            # 4) fallback get_structures
-            try:
-                if hasattr(mpr, "get_structures"):
-                    structs = mpr.get_structures(formula)
-                    if structs and len(structs) > 0:
-                        struct = structs[0]
-                        try:
-                            struct_conv = struct.get_conventional_standard_structure()
-                            struct = struct_conv
+                            struct = struct.get_conventional_standard_structure()
                         except Exception:
                             pass
-                        return struct.to(fmt="cif")
+                        return struct
             except Exception:
                 pass
-
+            # fallback query
+            try:
+                q = mpr.query(criteria={"formula": formula}, properties=["material_id"])
+                if q:
+                    mid = q[0].get("material_id")
+                    struct = mpr.get_structure_by_material_id(mid)
+                    try:
+                        struct = struct.get_conventional_standard_structure()
+                    except Exception:
+                        pass
+                    return struct
+            except Exception:
+                pass
+            # fallback get_structures
+            try:
+                structs = mpr.get_structures(formula)
+                if structs:
+                    struct = structs[0]
+                    try:
+                        struct = struct.get_conventional_standard_structure()
+                    except Exception:
+                        pass
+                    return struct
+            except Exception:
+                pass
     except Exception as e:
         st.error(f"Failed to retrieve structure: {e}")
-        return None
-
     return None
 
-
-# ====================================================================
-# 🔹 2. 使用 py3Dmol 渲染晶体结构并在右下角显示元素图例
-# ====================================================================
-def show_structure_with_legend(cif_string, width=820, height=560):
-    """
-    Render CIF with py3Dmol and show element legend (colors matched with rendering).
-    """
-    try:
-        # parse structure to get element list (pymatgen.Structure)
-        struct = Structure.from_str(cif_string, fmt="cif")
-        elements = sorted({str(s.specie) for s in struct})
-
-        # Build py3Dmol view
-        view = py3Dmol.view(width=width, height=height)
-        view.addModel(cif_string, "cif")
-
-        # Apply per-element styles so legend colors match
-        # set default style small spheres + sticks
-        view.setStyle({}, {"sphere": {"scale": 0.28}, "stick": {"radius": 0.15}})
-
-        # override per-element colors/sizes if present
-        for el in elements:
-            color = get_color_for_element(el)
-            # larger sphere for cations, keep generic for others
-            try:
-                view.setStyle({"elem": el}, {"sphere": {"scale": 0.35}, "stick": {"radius": 0.15}, "color": color})
-            except Exception:
-                # fallback to generic style
-                pass
-
-        view.addUnitCell()
-        view.zoomTo()
-        html = view._make_html()
-
-        # show 3D viewer
-        st.components.v1.html(html, height=height + 20, scrolling=False)
-
-        # build legend HTML — place it below viewer; style to align right similar to MP
-        legend_html = '<div style="display:flex; justify-content:flex-end; margin-top:6px;">'
-        legend_html += '<div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">'
-        for el in elements:
-            color = get_color_for_element(el)
-            # circle + element label
-            legend_html += f'<div style="display:flex; align-items:center; gap:6px; font-size:14px;">'
-            legend_html += f'<span style="width:14px; height:14px; border-radius:50%; display:inline-block; background:{color}; border:1px solid #333;"></span>'
-            legend_html += f'<span style="color:#222;">{el}</span>'
-            legend_html += '</div>'
-        legend_html += '</div></div>'
-
-        st.markdown(legend_html, unsafe_allow_html=True)
-
-    except Exception as e:
-        st.error(f"3D visualization error: {e}")
-
-
-# ====================================================================
-# 🔹 3. 特征工程（沿用你原来的实现）
-# ====================================================================
-def calculate_material_features(formula):
-    """计算材料的组成特征"""
-    try:
-        from matminer.featurizers.composition import (
-            ElementProperty, Meredig, Stoichiometry, IonProperty
-        )
-        from matminer.featurizers.conversions import StrToComposition, CompositionToOxidComposition
-
-        df = pd.DataFrame({'Formula': [formula]})
-        stc = StrToComposition()
-        df = stc.featurize_dataframe(df, 'Formula', ignore_errors=True)
-
-        if 'composition' not in df.columns or df['composition'].iloc[0] is None:
-            return {'Formula': formula}
-
-        features = {'Formula': formula}
-
-        # 元素属性特征
-        ep = ElementProperty.from_preset('magpie')
-        df = ep.featurize_dataframe(df, 'composition', ignore_errors=True)
-
-        # Meredig
-        mer = Meredig()
-        df = mer.featurize_dataframe(df, 'composition', ignore_errors=True)
-
-        # 化学计量特征
-        sto = Stoichiometry()
-        df = sto.featurize_dataframe(df, 'composition', ignore_errors=True)
-
-        # 离子特征
-        cto = CompositionToOxidComposition()
-        df = cto.featurize_dataframe(df, 'composition', ignore_errors=True)
-        ion = IonProperty()
-        df = ion.featurize_dataframe(df, 'composition_oxid', ignore_errors=True)
-
-        # 数值特征提取
-        numeric_columns = df.select_dtypes(include=[np.number]).columns
-        for col in numeric_columns:
-            val = df[col].iloc[0]
-            features[col] = float(val) if not pd.isna(val) else 0.0
-
-        return features
-
-    except Exception as e:
-        st.warning(f"Feature calculation failed: {e}")
-        import traceback
-        print(traceback.format_exc())
-        return {'Formula': formula}
-
-
-# 过滤特征 - 只显示指定的七个特征
-def filter_selected_features(features_dict, selected_descriptors, temperature):
-    filtered_features = {}
-    filtered_features['Temp'] = float(temperature)
-    for feature_name in selected_descriptors:
-        if feature_name == 'Temp':
-            continue
-        filtered_features[feature_name] = features_dict.get(feature_name, 0.0)
-    return filtered_features
-
-
-# 自动匹配模型特征（保持你原有逻辑）
-def align_features_with_model(features_dict, predictor, temperature, formula):
-    if predictor is None:
-        return pd.DataFrame([features_dict])
-
-    try:
-        model_features = predictor.feature_metadata.get_features()
-    except Exception:
-        model_features = []
-
-    aligned = {}
-    lower_map = {k.lower(): k for k in features_dict.keys()}
-
-    for feat in model_features:
-        f_low = feat.lower()
-        if feat in features_dict:
-            aligned[feat] = features_dict[feat]
-        elif f_low in lower_map:
-            aligned[feat] = features_dict[lower_map[f_low]]
-        elif f_low in ['temp', 'temperature', 'temperature_k']:
-            aligned[feat] = temperature
-        elif f_low in ['formula']:
-            aligned[feat] = formula
-        else:
-            aligned[feat] = 0.0
-
-    return pd.DataFrame([aligned])
-
-
-# ====================================================================
-# 🔹 4. 主逻辑（点击提交）
-# ====================================================================
+# ================== Main UI action ==================
 if submit_button:
     if not formula_input:
-        st.error("Please enter a valid chemical formula.")
+        st.error("Please enter a chemical formula.")
     else:
-        with st.spinner("Processing material and making predictions..."):
-            try:
-                # 1) 获取并显示晶体结构（conventional-ish）
+        with st.spinner("Fetching structure and computing features..."):
+            # 1. get structure
+            struct = get_structure_by_formula_conventional(formula_input)
+            if struct is None:
+                st.warning("No structure found for this formula in Materials Project.")
+            else:
                 st.subheader("Crystal Structure (from Materials Project)")
-                cif_data = get_structure_cif(formula_input)
-
-                if cif_data:
-                    show_structure_with_legend(cif_data, width=860, height=540)
-                else:
-                    st.warning("No structure found for this formula in Materials Project.")
-
-                # 2) 特征提取
-                features = calculate_material_features(formula_input)
-                st.write(f"✅ Total features extracted: {len(features)}")
-
-                selected_features = filter_selected_features(features, required_descriptors, temperature)
-                st.subheader("Material Features")
-                st.dataframe(pd.DataFrame([selected_features]))
-
-                # 3) 构建输入并预测
-                input_data = {"Formula": [formula_input], "Temp": [temperature]}
-                for feature_name in required_descriptors:
-                    if feature_name == 'Temp':
-                        continue
-                    input_data[feature_name] = [features.get(feature_name, 0.0)]
-                input_df = pd.DataFrame(input_data)
-
-                predictor = load_predictor()
-                if predictor is None:
-                    st.error("Predictor unavailable; cannot generate predictions.")
-                else:
-                    models = [
-                        "CatBoost",
-                        "ExtraTreesMSE",
-                        "LightGBM",
-                        "KNeighborsDist",
-                        "WeightedEnsemble_L2",
-                        "XGBoost",
-                    ]
-                    results = {}
-                    for m in models:
-                        try:
-                            results[m] = predictor.predict(input_df, model=m)
-                        except Exception as err:
-                            results[m] = f"Error: {err}"
-
-                    st.subheader("Prediction Results")
-                    st.dataframe(pd.DataFrame(results).iloc[:1, :])
-
-                    del predictor
-                    gc.collect()
-
-            except Exception as e:
-                st.error(f"An error occurred: {e}")
+                # render
+                render_py3dmol(struct,
+                               show_super=show_supercell,
+                               polyhedra=show_polyhedra,
+                               spin=enable_spin,
+                               atom_opacity=opacity,
+                               bond_opacity=stick_opacity,
+                               wireframe=wireframe_mode,
+                               width=900,
+                               height=600)
+            # 2. features
+            features = calculate_material_features(formula_input)
+            st.success(f"Total features extracted: {len(features)}")
+            # filter and show selected
+            sel = {"Temp": float(temperature)}
+            for fdesc in required_descriptors:
+                if fdesc == "Temp":
+                    continue
+                sel[fdesc] = features.get(fdesc, 0.0)
+            st.subheader("Selected features")
+            st.dataframe(pd.DataFrame([sel]))
+            # 3. prediction
+            predictor = load_predictor()
+            if predictor is None:
+                st.error("Predictor unavailable.")
+            else:
+                input_df = pd.DataFrame([{"Formula": formula_input, **sel}])
+                models = ["CatBoost","ExtraTreesMSE","LightGBM","KNeighborsDist","WeightedEnsemble_L2","XGBoost"]
+                results = {}
+                for m in models:
+                    try:
+                        results[m] = predictor.predict(input_df, model=m)
+                    except Exception as e:
+                        results[m] = f"Error: {e}"
+                st.subheader("Prediction Results")
+                st.dataframe(pd.DataFrame(results).iloc[:1,:])
+            gc.collect()
