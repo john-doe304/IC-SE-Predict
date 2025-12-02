@@ -109,7 +109,7 @@ required_descriptors = [
     'MagpieData mean NValence'
 ]
 
-MP_API_KEY = "YOUR_MP_API_KEY_HERE"
+
 
 # 缓存模型加载器以避免重复加载
 @st.cache_resource(show_spinner=False, max_entries=1)  # 限制只缓存一个实例
@@ -142,21 +142,28 @@ def display_structure_py3Dmol(structure):
 
 def load_from_MP(formula: str):
     """
-    Search structure from Materials Project via formula.
+    Search structure from Materials Project using API key.
+    Require MP_API_KEY to exist in st.secrets.
     """
     try:
         api_key = st.secrets["MP_API_KEY"]
+    except KeyError:
+        st.error("MP_API_KEY not found in secrets.toml. Please add it.")
+        return None
+
+    try:
         with MPRester(api_key) as mpr:
             results = mpr.summary.search(formula=formula)
 
             if len(results) == 0:
                 return None
 
+            # pick lowest-energy structure
             entry = sorted(results, key=lambda x: x.energy_per_atom)[0]
             return entry.structure
 
     except Exception as e:
-        st.warning(f"Materials Project search failed: {e}")
+        st.error(f"Materials Project search failed: {e}")
         return None
 
 def load_from_COD(formula: str):
@@ -422,6 +429,7 @@ if submit_button:
 
         except Exception as e:
             st.error(f"Prediction failed: {e}")
+
 
 
 
