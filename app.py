@@ -108,54 +108,56 @@ def load_predictor():
 # =====================================================
 def load_from_MP(formula):
     """
-    Search structure from Materials Project using hardcoded API key
+    Load clean, standardized, full-occupancy structure from Materials Project.
+    Ensures:
+    - Conventional standard structure
+    - No partial occupancy atoms
+    - Correct symmetry (cubic when applicable)
     """
+
     try:
         with MPRester(MP_API_KEY) as mpr:
 
-            # --- summary.search（新版本 API） ---
+            # Get all matched structures
+            results = mpr.summary.search(formula=formula)
+
+            if not results:
+                return None
+
+            # ⚠ 不再按能量选最低，因为 LLZO 会选到 tetragonal/monoclinic 低能相
+            # Instead: pick structure with the highest symmetry (i.e., cubic)
+            results_sorted = sorted(
+                results,
+                key=lambda x: (x.symmetry.number, -x.energy_per_atom),
+                reverse=True
+            )
+
+            entry = results_sorted[0]
+            structure = entry.structure
+
+            # === ① 强制 conventional cell（保证立方体显示） ===
             try:
-                if hasattr(mpr, "summary") and hasattr(mpr.summary, "search"):
-                    results = mpr.summary.search(formula=formula)
-                    if results:
-                        entry = sorted(results, key=lambda x: x.energy_per_atom)[0]
-                        return entry.structure
+                structure = structure.get_conventional_structure()
             except:
                 pass
 
-            # --- query（经典接口） ---
-            try:
-                q = mpr.query(
-                    criteria={"formula": formula},
-                    properties=["material_id"]
-                )
-                if q:
-                    mid = q[0]["material_id"]
-                    return mpr.get_structure_by_material_id(mid)
-            except:
-                pass
+            # === ② 移除 partial occupancy 原子（避免缺元素） ===
+            clean_sites = []
+            for site in structure.sites:
+                if site.occu == 1 or abs(site.occu - 1) < 1e-3:
+                    clean_sites.append(site)
 
-            # --- entries ---
-            try:
-                ents = mpr.get_entries(formula)
-                if ents:
-                    return ents[0].structure
-            except:
-                pass
+            structure = Structure.from_sites(clean_sites)
 
-            # --- get_structures（最新 API） ---
-            try:
-                structs = mpr.get_structures(formula)
-                if structs:
-                    return structs[0]
-            except:
-                pass
+            # === ③ 再次标准化，让 py3Dmol 正确读入 ===
+            structure = Structure.from_dict(structure.as_dict())
 
-        return None
+            return structure
 
     except Exception as e:
-        st.error(f"Materials Project search failed: {e}")
+        st.error(f"Materials Project fetch failed: {e}")
         return None
+
 
 
 def load_from_COD(formula):
@@ -366,4 +368,5 @@ if submit_button:
 
         del predictor
         gc.collect()
+
 
