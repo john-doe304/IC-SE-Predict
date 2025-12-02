@@ -146,7 +146,7 @@ def load_from_MP(formula: str):
     Require MP_API_KEY to exist in st.secrets.
     """
     try:
-        api_key = st.secrets["MP_API_KEY"]
+        api_key = st.secrets["Gd6Y2d9mtjquU8imu8n4GdIiwCvUtZqN"]
     except KeyError:
         st.error("MP_API_KEY not found in secrets.toml. Please add it.")
         return None
@@ -429,6 +429,7 @@ if submit_button:
 
         except Exception as e:
             st.error(f"Prediction failed: {e}")
+
 
 
 
