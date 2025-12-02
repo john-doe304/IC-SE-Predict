@@ -21,6 +21,8 @@ from mordred import Calculator, descriptors
 from pymatgen.core import Structure
 from pymatgen.ext.matproj import MPRester
 
+# ========= Materials Project API KEY ==========
+MP_API_KEY = "Gd6Y2d9mtjquU8imu8n4GdIiwCvUtZqN"
 
 ###############################################################
 # UI SETTINGS
@@ -107,27 +109,59 @@ def display_structure_py3Dmol(structure):
 ###############################################################
 # MATERIALS PROJECT RETRIEVAL
 ###############################################################
-def load_from_MP(formula):
-    if "MP_API_KEY" not in st.secrets:
-        st.error("MP_API_KEY not found in secrets.toml")
-        return None
-
-    api_key = st.secrets["MP_API_KEY"]
-
+def get_structure_cif(formula):
+    """
+    尝试从 Materials Project 获取结构（多种 fallback）
+    返回 cif 字符串
+    """
     try:
-        with MPRester(api_key) as mpr:
-            results = mpr.summary.search(formula=formula)
+        with MPRester(MP_API_KEY) as mpr:
 
-            if len(results) == 0:
-                return None
+            # 第一优先：summary.search（新 API）
+            try:
+                if hasattr(mpr, "summary") and hasattr(mpr.summary, "search"):
+                    res = mpr.summary.search(formula=formula)
+                    if res:
+                        s = res[0].structure
+                        return s.to(fmt="cif")
+            except Exception:
+                pass
 
-            entry = sorted(results, key=lambda x: x.energy_per_atom)[0]
-            return entry.structure
+            # 第二优先：query（经典）
+            try:
+                query = mpr.query(
+                    criteria={"formula": formula},
+                    properties=["material_id"]
+                )
+                if query:
+                    mid = query[0]["material_id"]
+                    s = mpr.get_structure_by_material_id(mid)
+                    return s.to(fmt="cif")
+            except Exception:
+                pass
+
+            # 第三优先：entries
+            try:
+                entries = mpr.get_entries(formula)
+                if entries:
+                    s = entries[0].structure
+                    return s.to(fmt="cif")
+            except Exception:
+                pass
+
+            # 第四：get_structures（非常新）
+            try:
+                structs = mpr.get_structures(formula)
+                if structs:
+                    return structs[0].to(fmt="cif")
+            except Exception:
+                pass
+
+            return None
 
     except Exception as e:
-        st.error(f"Materials Project search failed: {e}")
+        st.error(f"Failed to retrieve structure: {e}")
         return None
-
 
 ###############################################################
 # COD DATABASE RETRIEVAL
@@ -277,3 +311,4 @@ if submit_button:
 
         except Exception as e:
             st.error(f"Prediction failed: {e}")
+
