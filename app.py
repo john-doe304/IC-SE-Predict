@@ -1,5 +1,6 @@
-# app.py — 完整版（formula 查询 + conventional cell + py3Dmol 可视化）
-# 包含：Materials Project 官方配色、polyhedral（近似）、supercell、旋转动画、透明度、线框模式
+# app.py — 完整版（包含修复 VoronoiNN 初始化问题）
+# 功能：formula 查询 Materials Project -> conventional cell -> py3Dmol 渲染
+# 包含：MP 官方配色、polyhedral (近似)、supercell、旋转动画、透明度、线框模式
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -19,7 +20,11 @@ from autogluon.tabular import TabularPredictor
 import py3Dmol
 from pymatgen.ext.matproj import MPRester
 from pymatgen.core import Structure, Element
-from pymatgen.analysis.local_env import VoronoiNN
+# VoronoiNN may vary across pymatgen versions; import it if available
+try:
+    from pymatgen.analysis.local_env import VoronoiNN
+except Exception:
+    VoronoiNN = None
 
 # ========== Materials Project API KEY ==========
 MP_API_KEY = "Gd6Y2d9mtjquU8imu8n4GdIiwCvUtZqN"  # 请改为你的 Key（不要公开）
@@ -40,14 +45,14 @@ st.title("🔬 Solid Electrolyte Viewer & Ionic Conductivity Predictor")
 formula_input = st.text_input("Enter Chemical Formula (formula query to Materials Project)", "Li7La3Zr2O12")
 temperature = st.number_input("Temperature (K)", min_value=200, max_value=1000, value=298, step=1)
 
-# visualization options (you asked for UI controls)
+# visualization options (UI controls)
 col1, col2, col3 = st.columns(3)
 with col1:
     show_supercell = st.checkbox("Show 2×2×2 supercell", value=False)
     show_polyhedra = st.checkbox("Show polyhedra (approx)", value=False)
 with col2:
     enable_spin = st.checkbox("Enable rotation animation", value=False)
-    wireframe_mode = st.checkbox("Wireframe mode", value=False)
+    wireframe_mode = st.checkbox("Wireframe mode (thin bonds & smaller spheres)", value=False)
 with col3:
     opacity = st.slider("Atom opacity (0-1)", min_value=0.0, max_value=1.0, value=1.0, step=0.05)
     stick_opacity = st.slider("Bond opacity (0-1)", min_value=0.0, max_value=1.0, value=1.0, step=0.05)
@@ -64,7 +69,6 @@ def load_predictor():
         return None
 
 # ========== Materials Project 官方色表（接近 MP 风格） ==========
-# 这是一个接近 MP 的配色映射（取自常见 MP 颜色配置）
 MP_COLOR_MAP = {
     "H": "#FFFFFF","Li":"#CC80FF","Be":"#C2FF00","B":"#FFB5B5","C":"#909090","N":"#3050F8","O":"#FF0D0D",
     "F":"#90E050","Na":"#AB5CF2","Mg":"#8AFF00","Al":"#BFA6A6","Si":"#F0C8A0","P":"#FF8000","S":"#FFFF30",
@@ -85,23 +89,14 @@ def mp_color(element):
 
 # ========== helper: build simplified structure dict for JS ==========
 def structure_to_minimal_dict(struct: Structure):
-    """
-    Convert pymatgen Structure to a JSON-friendly simple dict used in JS:
-    - sites: list of {"xyz":[x,y,z], "element":"Li"}
-    - lattice: 3x3 matrix
-    """
     sites = []
     for site in struct.sites:
         sites.append({"xyz": [float(x) for x in site.coords], "element": str(site.specie)})
     lattice = [[float(x) for x in row] for row in struct.lattice.matrix]
     return {"sites": sites, "lattice": lattice}
 
-# ========== helper: detect bonds by covalent radii (python side) ==========
+# ========== helper: detect bonds by covalent radii ==========
 def detect_bonds(struct: Structure, scale_factor=1.2):
-    """
-    Return list of (i,j) bonds indices by comparing distances to covalent radii (sum * scale_factor).
-    Use pymatgen Element.covalent_radius (in angstroms).
-    """
     bonds = []
     n = len(struct.sites)
     radii = []
@@ -122,27 +117,44 @@ def detect_bonds(struct: Structure, scale_factor=1.2):
                 bonds.append((i, j))
     return bonds
 
-# ========== helper: find coordination (VoronoiNN) ==========
-vn = VoronoiNN(voronoi_tol=0.0)
+# ========== helper: find coordination (VoronoiNN or fallback) ==========
 def get_coordination_list(struct: Structure, max_nn=12):
     """
-    For each site, return list of neighbor site indices (according to VoronoiNN)
-    This is somewhat robust for polyhedral detection.
+    For each site, return list of neighbor site indices (VoronoiNN if available, else distance-based fallback).
     """
-    coord_lists = []
-    for i, site in enumerate(struct.sites):
+    # Try VoronoiNN if available
+    if VoronoiNN is not None:
         try:
-            nn = vn.get_nn_info(struct, i)
-            # nn is list of dicts with 'site_index' key
-            neighbors = [int(d['site_index']) for d in nn if 'site_index' in d]
-            coord_lists.append(neighbors[:max_nn])
+            vn = VoronoiNN()  # default constructor; some pymatgen versions don't accept extra args
+            coord_lists = []
+            for i in range(len(struct.sites)):
+                try:
+                    nn_info = vn.get_nn_info(struct, i)
+                    neighbors = [int(d['site_index']) for d in nn_info if 'site_index' in d]
+                    coord_lists.append(neighbors[:max_nn])
+                except Exception:
+                    # fallback for this site
+                    neighbors = [j for j in range(len(struct.sites)) if j!=i and struct.get_distance(i,j) < 3.0]
+                    coord_lists.append(neighbors[:max_nn])
+            return coord_lists
         except Exception:
-            # fallback: simple distance-based
-            neighbors = [j for j in range(len(struct.sites)) if j!=i and struct.get_distance(i,j) < 3.0]
-            coord_lists.append(neighbors)
+            # If VoronoiNN instantiation fails for some reason, fall back
+            pass
+
+    # Fallback: simple distance-based neighbors
+    coord_lists = []
+    for i in range(len(struct.sites)):
+        nbrs = []
+        for j in range(len(struct.sites)):
+            if i == j:
+                continue
+            d = struct.get_distance(i, j)
+            if d < 3.0:
+                nbrs.append(j)
+        coord_lists.append(nbrs[:max_nn])
     return coord_lists
 
-# ========== main render function ========== 
+# ========== main render function ==========
 def render_py3dmol(struct: Structure, *,
                    show_super=False,
                    polyhedra=False,
@@ -151,19 +163,13 @@ def render_py3dmol(struct: Structure, *,
                    bond_opacity=1.0,
                    wireframe=False,
                    width=900, height=600):
-    """
-    Build a minimal dict (sites, lattice, bonds) and render using custom 3Dmol.js HTML.
-    Polyhedra is rendered as cylinders from central atom to coordinating oxygens and translucent small spheres at coordinating atoms.
-    Wireframe mode draws bonds as thin cylinders and hides big spheres.
-    """
-    # optionally expand to supercell
+
     if show_super:
         s = struct.copy()
         s.make_supercell([2,2,2])
     else:
         s = struct
 
-    # compute bonds and coordination
     bonds = detect_bonds(s, scale_factor=1.15)
     coord = get_coordination_list(s)
 
@@ -171,39 +177,23 @@ def render_py3dmol(struct: Structure, *,
     minimal['bonds'] = bonds
     minimal['coord'] = coord
 
-    # choose per-element color map using MP color table
     elements = sorted({site['element'] for site in minimal['sites']})
     color_map = {el: mp_color(el) for el in elements}
 
     struct_json = json.dumps(minimal)
+    color_json = json.dumps(color_map)
 
-    # Build HTML with JS to build viewer and add primitives
-    # JS: add spheres, cylinders (bonds), polyhedron cylinders and translucent neighbor spheres, unit cell
     js = f"""
     <div id="viewer" style="width:100%; height:{height}px; position:relative;"></div>
     <script>
     (function() {{
         let data = {struct_json};
+        let color_map = {color_json};
         let viewer = $3Dmol.createViewer('viewer', {{ backgroundColor: 'white' }});
         viewer.clear();
 
-        // Disable automatic coloring: we'll manually color
-        // Add unit cell (converted from lattice vectors)
-        // lattice matrix: a,b,c as row vectors
         let lattice = data.lattice;
-        // 3Dmol's addUnitCell expects a,b,c as arrays
         viewer.addUnitCell({{a: lattice[0], b: lattice[1], c: lattice[2], color:'black', linewidth:1.0}});
-
-        // add atoms as spheres or small spheres depending on wireframe mode
-        for (let i=0;i<data.sites.length;i++) {{
-            let s = data.sites[i];
-            let el = s.element;
-            let pos = s.xyz;
-            let color = "{json.dumps(color_map)}"[0]; // placeholder (we'll use a map below)
-        }}
-
-        // create a color map in JS
-        let color_map = {json.dumps(color_map)};
 
         // add atoms
         for (let i=0;i<data.sites.length;i++) {{
@@ -212,48 +202,38 @@ def render_py3dmol(struct: Structure, *,
             let pos = {{x: s.xyz[0], y: s.xyz[1], z: s.xyz[2]}};
             let color = color_map[el] || "#BBBBBB";
             if ({'true' if wireframe else 'false'}) {{
-                // wireframe: smaller spheres and thinner bonds
                 viewer.addSphere({{center: pos, radius: 0.18, color: color, opacity: {atom_opacity}}});
             }} else {{
                 viewer.addSphere({{center: pos, radius: 0.45, color: color, opacity: {atom_opacity}}});
             }}
         }}
 
-        // add bonds (cylinders)
-        for (let k=0;k<data.bonds.length;k++) {{
-            let i = data.bonds[k][0], j = data.bonds[k][1];
-            let p1 = data.sites[i].xyz;
-            let p2 = data.sites[j].xyz;
+        // add bonds
+        for (let b=0;b<data.bonds.length;b++) {{
+            let i = data.bonds[b][0], j = data.bonds[b][1];
+            let p1 = data.sites[i].xyz, p2 = data.sites[j].xyz;
             let el1 = data.sites[i].element;
-            // color bond by average of two atom colors (simple approach)
-            let c1 = color_map[el1] || "#BBBBBB";
-            viewer.addCylinder({{start: {{x:p1[0],y:p1[1],z:p1[2]}}, end: {{x:p2[0],y:p2[1],z:p2[2]}} , radius: {'0.08' if wireframe else '0.15'}, color: c1, opacity: {bond_opacity} }});
+            let c = color_map[el1] || "#BBBBBB";
+            viewer.addCylinder({{start: {{x:p1[0],y:p1[1],z:p1[2]}}, end: {{x:p2[0],y:p2[1],z:p2[2]}} , radius: {'0.08' if wireframe else '0.15'}, color: c, opacity: {bond_opacity} }});
         }}
 
-        // polyhedra: for each site, draw cylinders to its neighbors (coord list)
+        // polyhedra (approx): translucent small spheres at neighbor positions + small cylinders
         if ({'true' if polyhedra else 'false'}) {{
             for (let i=0;i<data.coord.length;i++) {{
                 let neighs = data.coord[i];
-                // heuristics: only show polyhedron if central element is metal-like (not O/Cl/S/P)
                 let central = data.sites[i].element;
-                // we'll show polyhedra for transition metals, lanthanoids, alkali/alkaline earth (simple rule: element length 1 and not O,S,Cl,P)
                 if (["O","S","Cl","P"].indexOf(central) >= 0) continue;
-                // draw translucent small spheres on neighbors and cylinders
-                for (let t=0;t<neighs.length;t++) {{
-                    let j = neighs[t];
-                    let p1 = data.sites[i].xyz;
-                    let p2 = data.sites[j].xyz;
+                for (let idx=0; idx<neighs.length; idx++) {{
+                    let j = neighs[idx];
+                    let p1 = data.sites[i].xyz, p2 = data.sites[j].xyz;
                     let elj = data.sites[j].element;
                     let c = color_map[elj] || "#BBBBBB";
-                    // small translucent sphere
                     viewer.addSphere({{center: {{x:p2[0],y:p2[1],z:p2[2]}}, radius:0.22, color: c, opacity: 0.18}});
-                    // cylinder from center to neighbor
                     viewer.addCylinder({{start: {{x:p1[0],y:p1[1],z:p1[2]}}, end:{{x:p2[0],y:p2[1],z:p2[2]}} , radius:0.06, color: c, opacity: 0.22}});
                 }}
             }}
         }}
 
-        // If spin enabled:
         if ({'true' if spin else 'false'}) {{
             try {{ viewer.spin(true); }} catch(e){{ console.warn(e); }}
         }}
@@ -264,10 +244,8 @@ def render_py3dmol(struct: Structure, *,
     </script>
     """
 
-    # show via Streamlit
     st.components.v1.html(js, height=height+40, scrolling=False)
 
-    # legend under the viewer - consistent colors
     legend_html = '<div class="legend-row">'
     for el, c in color_map.items():
         legend_html += f'<div class="legend-item"><span style="width:14px;height:14px;border-radius:50%;background:{c};display:inline-block;border:1px solid #333;"></span><span>{el}</span></div>'
@@ -298,7 +276,6 @@ def calculate_material_features(formula):
         st.warning(f"Feature calculation failed: {e}")
         return {"Formula": formula}
 
-# 7 descriptors list (same as yours)
 required_descriptors = [
     'MagpieData mean CovalentRadius',
     'Temp',
@@ -309,21 +286,18 @@ required_descriptors = [
     'MagpieData mean NValence'
 ]
 
-# ================== helper: get structure from MP (try conventional cell) ==================
+# ========== helper: get structure from MP (try conventional cell) ==========
 def get_structure_by_formula_conventional(formula):
     try:
         with MPRester(MP_API_KEY) as mpr:
-            # try summary.search
             try:
                 if hasattr(mpr, "summary") and hasattr(mpr.summary, "search"):
                     res = mpr.summary.search(formula=formula)
                     if res and len(res)>0:
-                        # pick first material
                         first = res[0]
                         if hasattr(first, "structure") and first.structure is not None:
                             struct = first.structure
                         else:
-                            # try material_id
                             matid = None
                             if isinstance(first, dict) and "material_id" in first:
                                 matid = first["material_id"]
@@ -331,7 +305,6 @@ def get_structure_by_formula_conventional(formula):
                                 matid = first.material_id
                             if matid:
                                 struct = mpr.get_structure_by_material_id(matid)
-                        # try to get conventional cell if method available
                         try:
                             struct = struct.get_conventional_standard_structure()
                         except Exception:
@@ -339,7 +312,6 @@ def get_structure_by_formula_conventional(formula):
                         return struct
             except Exception:
                 pass
-            # fallback query
             try:
                 q = mpr.query(criteria={"formula": formula}, properties=["material_id"])
                 if q:
@@ -352,7 +324,6 @@ def get_structure_by_formula_conventional(formula):
                     return struct
             except Exception:
                 pass
-            # fallback get_structures
             try:
                 structs = mpr.get_structures(formula)
                 if structs:
@@ -374,13 +345,11 @@ if submit_button:
         st.error("Please enter a chemical formula.")
     else:
         with st.spinner("Fetching structure and computing features..."):
-            # 1. get structure
             struct = get_structure_by_formula_conventional(formula_input)
             if struct is None:
                 st.warning("No structure found for this formula in Materials Project.")
             else:
                 st.subheader("Crystal Structure (from Materials Project)")
-                # render
                 render_py3dmol(struct,
                                show_super=show_supercell,
                                polyhedra=show_polyhedra,
@@ -390,10 +359,8 @@ if submit_button:
                                wireframe=wireframe_mode,
                                width=900,
                                height=600)
-            # 2. features
             features = calculate_material_features(formula_input)
             st.success(f"Total features extracted: {len(features)}")
-            # filter and show selected
             sel = {"Temp": float(temperature)}
             for fdesc in required_descriptors:
                 if fdesc == "Temp":
@@ -401,7 +368,6 @@ if submit_button:
                 sel[fdesc] = features.get(fdesc, 0.0)
             st.subheader("Selected features")
             st.dataframe(pd.DataFrame([sel]))
-            # 3. prediction
             predictor = load_predictor()
             if predictor is None:
                 st.error("Predictor unavailable.")
