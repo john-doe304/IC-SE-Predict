@@ -185,6 +185,15 @@ def load_crystal_structure_public(formula):
     s = load_from_MP(formula)
     if s:
         st.success("Structure found in Materials Project ✓")
+
+        # -------- ★ 关键：标准化为 Materials Project 传统晶胞（官网也用它） --------
+        try:
+            s = s.get_conventional_structure()
+            s = s.as_dict()  # 防止 py3Dmol 读取错误
+            s = Structure.from_dict(s)
+        except:
+            pass
+
         return s
 
     s = load_from_COD(formula)
@@ -201,7 +210,14 @@ def load_crystal_structure_public(formula):
 # =====================================================
 def display_structure_py3Dmol(structure):
     try:
+        # 强制 conventional cell
+        try:
+            structure = structure.get_conventional_structure()
+        except:
+            pass
+
         cif_str = structure.to(fmt="cif")
+
 
         view = py3Dmol.view(width=600, height=420)
         view.addModel(cif_str, "cif")
@@ -350,3 +366,4 @@ if submit_button:
 
         del predictor
         gc.collect()
+
