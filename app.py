@@ -5,6 +5,7 @@ import gc
 import requests
 import numpy as np
 import pandas as pd
+import py3Dmol
 from io import BytesIO
 from tqdm import tqdm
 from autogluon.tabular import TabularPredictor
@@ -19,9 +20,7 @@ from mordred import Calculator, descriptors
 # --- Pymatgen & Crystal Toolkit (for structure rendering) ---
 from pymatgen.core import Structure
 from pymatgen.ext.matproj import MPRester
-from crystal_toolkit.renderables.structure import StructureMoleculeComponent
-from crystal_toolkit.settings import SETTINGS
-SETTINGS.DEFAULT_VIEWER = "speck"  # lightweight 3D viewer
+
 
 
 # 添加 CSS 样式
@@ -115,6 +114,29 @@ required_descriptors = [
 def load_predictor():
     """缓存模型加载，避免重复加载导致内存溢出"""
     return TabularPredictor.load("./ag-20251024_075719")
+
+def display_structure_py3Dmol(structure):
+    """
+    Render pymatgen Structure using py3Dmol (compatible with Streamlit)
+    """
+    try:
+        cif_str = structure.to(fmt="cif")
+
+        view = py3Dmol.view(width=600, height=400)
+        view.addModel(cif_str, "cif")
+
+        # Display as ball-stick model (recommended)
+        view.setStyle({"sphere": {"scale": 0.25}, "stick": {"radius": 0.15}})
+        
+        view.addUnitCell()  # draw unit cell
+        view.zoomTo()
+
+        view.show()
+        st.components.v1.html(view._make_html(), height=450)
+
+    except Exception as e:
+        st.error(f"Structure visualization failed: {e}")
+
 
 def load_from_MP(formula: str):
     """
@@ -353,7 +375,8 @@ if submit_button:
         structure = load_crystal_structure_public(formula_input)
 
         if structure:
-            display_crystal_structure(structure)
+            display_structure_py3Dmol(structure)
+
 
         ###########################################################
         # 2. Calculate Features
@@ -397,6 +420,7 @@ if submit_button:
 
         except Exception as e:
             st.error(f"Prediction failed: {e}")
+
 
 
 
