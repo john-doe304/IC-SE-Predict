@@ -21,7 +21,7 @@ from mordred import Calculator, descriptors
 from pymatgen.core import Structure
 from pymatgen.ext.matproj import MPRester
 
-
+MP_API_KEY = "Gd6Y2d9mtjquU8imu8n4GdIiwCvUtZqN"
 
 # 添加 CSS 样式
 st.markdown(
@@ -422,6 +422,7 @@ if submit_button:
 
         except Exception as e:
             st.error(f"Prediction failed: {e}")
+
 
 
 
