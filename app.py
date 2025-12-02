@@ -109,6 +109,8 @@ required_descriptors = [
     'MagpieData mean NValence'
 ]
 
+MP_API_KEY = "YOUR_MP_API_KEY_HERE"
+
 # 缓存模型加载器以避免重复加载
 @st.cache_resource(show_spinner=False, max_entries=1)  # 限制只缓存一个实例
 def load_predictor():
@@ -420,6 +422,7 @@ if submit_button:
 
         except Exception as e:
             st.error(f"Prediction failed: {e}")
+
 
 
 
