@@ -226,89 +226,74 @@ def make_supercell(structure, size=(2,2,2)):
 # ==========================
 # MP-style renderer (integrated)
 # ==========================
+def wrap_structure_manual(s):
+    """
+    Fully robust manual wrap: force all fractional coordinates into [0,1).
+    MP 的部分结构 get_wrapped_structure() 不能完全 wrap，必须手动处理。
+    """
+    new_sites = []
+    for site in s.sites:
+        fc = np.mod(site.frac_coords, 1.0)  # 硬性 wrap
+        new_sites.append(
+            site.__class__(
+                species=site.species,
+                coords=fc,
+                lattice=s.lattice,
+                coords_are_cartesian=False,
+                properties=site.properties,
+            )
+        )
+    return Structure(s.lattice, [site.species for site in new_sites],
+                     [site.frac_coords for site in new_sites])
+
+
 def display_structure_mp(structure):
-    """
-    Render structure in MP-like style:
-    - wrap
-    - orthogonalize
-    - supercell
-    - wrap AGAIN (super important!)
-    - MP colors, sphere scale, sticks
-    - optional polyhedra
-    """
+
     try:
-        # Step 1: initial wrap
-        try:
-            s = structure.get_wrapped_structure()
-        except Exception:
-            s = structure.copy()
+        s = structure.copy()
 
-        # Step 2: orthogonalize initial cell
-        try:
-            s = s.get_orthogonalized_structure()
-        except Exception:
-            pass
+        # ---------- Step 0: 强制第一次 wrap ----------
+        s = wrap_structure_manual(s)
 
-        # Step 3: supercell 2x2x2
-        s = make_supercell(s, (2,2,2))
-
-        # ⭐⭐⭐ VERY IMPORTANT ⭐⭐⭐
-        # after supercell, wrap again to remove floating atoms!
-        try:
-            s = s.get_wrapped_structure()
-        except:
-            pass
-
-        # and orthogonalize AGAIN to match MP's behavior
+        # ---------- Step 1: orthogonalize ----------
         try:
             s = s.get_orthogonalized_structure()
         except:
             pass
 
-        # Step 4: Export CIF
+        # ---------- Step 2: supercell ----------
+        s.make_supercell((2, 2, 2))
+
+        # ---------- Step 3: supercell 之后必须 wrap（最关键的一步） ----------
+        s = wrap_structure_manual(s)
+
+        # ---------- Step 4: 再次 orthogonalize（MP 网页也会这样做） ----------
+        try:
+            s = s.get_orthogonalized_structure()
+        except:
+            pass
+
+        # ---------- Step 5: 导出 CIF 让 py3Dmol 读取 ----------
         cif_str = s.to(fmt="cif")
-
         view = py3Dmol.view(width=800, height=620)
         view.addModel(cif_str, "cif")
 
-        # Step 5: MP-style sphere & stick
-        for site in s:
-            elem = site.specie.symbol
+        # ---------- Step 6: MP sphere & stick ----------
+        view.setStyle({
+            "sphere": {"scale": 0.28},
+            "stick": {"radius": 0.12}
+        })
 
-            # covalent radius → scale
-            try:
-                cov = Element(elem).covalent_radius or 0.7
-            except:
-                cov = 0.7
-
-            sphere_scale = max(0.18, cov * 0.45)
-            color = hex_to_0x(MP_ELEMENT_COLORS.get(elem, None))
-
-            view.setStyle(
-                {"elem": elem},
-                {
-                    "sphere": {"scale": sphere_scale, "color": color},
-                    "stick": {"radius": 0.10, "color": color}
-                }
-            )
-
-        # Step 6: unit cell & camera
-        view.addUnitCell({"color":"0x000000","linewidth":1.2})
-        view.setBackgroundColor("white")
+        view.addUnitCell({"linewidth": 1.2})
         view.setProjection("orthographic")
+        view.setBackgroundColor("white")
         view.zoomTo()
-
-        # Step 7: (optional) polyhedra if scipy present
-        if _HAVE_SCIPY:
-            try:
-                _add_polyhedra_to_view(view, s)
-            except:
-                pass
 
         st.components.v1.html(view._make_html(), height=680)
 
     except Exception as e:
         st.error(f"MP-style visualization failed: {e}")
+
 
 
 # ==========================
@@ -420,4 +405,5 @@ if submit_button:
         st.dataframe(pd.DataFrame(results).iloc[:1,:])
         del predictor
         gc.collect()
+
 
