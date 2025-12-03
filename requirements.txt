@@ -1,15 +1,22 @@
-# Fix Streamlit dependency conflict
-rich==13.7.1
+# === Pymatgen + MP API ===
+pymatgen>=2024.1.1
+mp-api>=0.35.0
 
-streamlit==1.30.0
-rdkit==2024.9.6
-numpy==1.26.4
-pandas==2.1.4
-autogluon==1.2.0
-pillow==10.4.0
-
-pymatgen==2023.9.10
-matminer==0.9.3
-
-mordred
+# === Crystal Toolkit (full web version) ===
+crystal-toolkit-core @ git+https://github.com/materialsproject/crystal-toolkit.git@main#subdirectory=crystal_toolkit
+panel>=1.3
+bokeh>=3.3
 py3Dmol
+
+# === Streamlit & ML ===
+streamlit
+numpy
+pandas
+requests
+autogluon.tabular
+matminer
+rdkit
+mordred
+
+scikit-learn
+plotly
