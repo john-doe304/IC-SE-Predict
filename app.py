@@ -238,52 +238,61 @@ def load_crystal_structure_public(formula):
     st.error("No structure found in public databases.")
     return None
 
+def make_supercell(structure, size=(2,2,2)):
+    try:
+        structure = structure.copy()
+        structure.make_supercell(size)
+        return structure
+    except:
+        return structure
+
 
 # =====================================================
 # 2. Structure display (py3Dmol)
 # =====================================================
 def display_structure_py3Dmol(structure):
     try:
-        # Materials Project official: use conventional standard cell
+        # Step 0 - conventional cell
         try:
             structure = structure.get_conventional_structure()
         except:
             pass
 
+        # Step 1 - MP style supercell (2x2x2)
+        structure = make_supercell(structure, (2,2,2))
+
         cif_str = structure.to(fmt="cif")
 
-        view = py3Dmol.view(width=650, height=500)
+        view = py3Dmol.view(width=650, height=520)
         view.addModel(cif_str, "cif")
 
-        # ===== Materials Project official style =====
+        # Step 2 - MP style rendering
         view.setStyle({
             "sphere": {
-                "scale": 0.35,              # sphere size (MP-like)
-                "colorscheme": "Jmol"       # MP official color scheme
+                "scale": 0.30,
+                "colorscheme": "Jmol"
             },
             "stick": {
-                "radius": 0.13              # slim bonds (MP style)
+                "radius": 0.12
             }
         })
 
-        # ===== Unit cell line (white, MP style) =====
+        # Step 3 - MP style unit cell
         view.addUnitCell({
             "color": "white",
             "linewidth": 2.0
         })
 
-        # ===== Background =====
-        view.setBackgroundColor("white")    # MP uses pure white
+        # Step 4 - background and camera
+        view.setBackgroundColor("white")
+        view.setProjection("orthographic")
+        view.zoomTo()
 
-        # ===== Camera / projection =====
-        view.zoomTo()                       # auto center
-        view.setProjection("orthographic")  # non-perspective, MP style
-
-        html = view._make_html()
-        st.components.v1.html(html, height=520, scrolling=False)
+        st.components.v1.html(view._make_html(), height=540, scrolling=False)
 
     except Exception as e:
         st.error(f"3D structure visualization failed: {e}")
+
 
 
 
@@ -417,6 +426,7 @@ if submit_button:
 
         del predictor
         gc.collect()
+
 
 
 
