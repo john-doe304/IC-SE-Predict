@@ -19,7 +19,7 @@ from mordred import Calculator, descriptors
 # --- Pymatgen ---
 from pymatgen.core import Structure
 from pymatgen.ext.matproj import MPRester
-
+from pymatgen.core.composition import Composition
 
 # =====================================================
 #  Materials Project API KEY（直接写在代码，不使用 secrets）
@@ -106,58 +106,124 @@ def load_predictor():
 # =====================================================
 # 1. Public database structure retrieval
 # =====================================================
-def load_from_MP(formula):
+def load_from_MP(formula: str):
     """
-    Load clean, standardized, full-occupancy structure from Materials Project.
-    Ensures:
-    - Conventional standard structure
-    - No partial occupancy atoms
-    - Correct symmetry (cubic when applicable)
+    Robust Materials Project loader:
+    - iterate candidates returned by MP summary.search
+    - use conventional cell
+    - prefer structures that contain all elements in the formula
+    - remove partial-occupancy sites (occupancy < 1) when safe
+    - return a pymatgen Structure or None
     """
-
     try:
         with MPRester(MP_API_KEY) as mpr:
-
-            # Get all matched structures
-            results = mpr.summary.search(formula=formula)
+            # get candidates (may return multiple entries)
+            try:
+                results = mpr.summary.search(formula=formula)
+            except Exception:
+                # fallback to older query if summary.search not available
+                try:
+                    q = mpr.query(criteria={"formula": formula}, properties=["material_id"])
+                    results = []
+                    for item in q:
+                        mid = item.get("material_id")
+                        if mid:
+                            # fetch structure object
+                            s = mpr.get_structure_by_material_id(mid)
+                            # wrap into a small helper object with attributes similar to summary
+                            class _Dummy:
+                                def __init__(self, structure):
+                                    self.structure = structure
+                            results.append(_Dummy(s))
+                except Exception:
+                    results = []
 
             if not results:
                 return None
 
-            # ⚠ 不再按能量选最低，因为 LLZO 会选到 tetragonal/monoclinic 低能相
-            # Instead: pick structure with the highest symmetry (i.e., cubic)
-            results_sorted = sorted(
-                results,
-                key=lambda x: (x.symmetry.number, -x.energy_per_atom),
-                reverse=True
-            )
-
-            entry = results_sorted[0]
-            structure = entry.structure
-
-            # === ① 强制 conventional cell（保证立方体显示） ===
+            # expected element symbols from input formula
             try:
-                structure = structure.get_conventional_structure()
+                expected = {el.symbol for el in Composition(formula).elements}
+            except Exception:
+                expected = set()
+
+            # iterate candidates and try to find a "clean" one
+            for entry in results:
+                try:
+                    s = entry.structure
+                except Exception:
+                    continue
+
+                # ensure conventional cell when possible
+                try:
+                    s_conv = s.get_conventional_structure()
+                except Exception:
+                    s_conv = s
+
+                # quick check: does this structure contain all expected elements?
+                try:
+                    present = {el.symbol for el in s_conv.composition.elements}
+                except Exception:
+                    present = set()
+
+                if expected and not expected.issubset(present):
+                    # this candidate lacks some elements — skip
+                    # (but keep trying other candidates)
+                    continue
+
+                # Build cleaned list of sites: keep sites with max occupancy ~1
+                clean_sites = []
+                for site in s_conv.sites:
+                    # species_and_occu is a mapping Element -> occupancy (float)
+                    try:
+                        occu_vals = list(site.species_and_occu.values())
+                        max_occu = max(occu_vals) if occu_vals else 1.0
+                    except Exception:
+                        # if we cannot read occupancies, assume fully occupied
+                        max_occu = 1.0
+
+                    # keep site if highest species occupancy ~ 1.0 (tolerance)
+                    if max_occu >= 0.999:
+                        clean_sites.append(site)
+                    # else: skip partial-occupancy site
+
+                # If we removed too many sites, fallback to original s_conv
+                if len(clean_sites) < max(1, int(len(s_conv.sites) * 0.5)):
+                    # too aggressive removal — use original candidate
+                    final_struct = s_conv
+                else:
+                    # rebuild Structure from clean sites
+                    try:
+                        final_struct = Structure.from_sites(clean_sites)
+                    except Exception:
+                        final_struct = s_conv
+
+                # final verification: contain expected elements?
+                try:
+                    final_present = {el.symbol for el in final_struct.composition.elements}
+                except Exception:
+                    final_present = set()
+
+                if expected and not expected.issubset(final_present):
+                    # cleaned structure lost some elements -> skip this candidate
+                    continue
+
+                # success: return the cleaned conventional structure
+                return final_struct
+
+            # if none passed checks, as a last resort return first candidate's conventional
+            try:
+                first = results[0].structure
+                try:
+                    return first.get_conventional_structure()
+                except:
+                    return first
             except:
-                pass
-
-            # === ② 移除 partial occupancy 原子（避免缺元素） ===
-            clean_sites = []
-            for site in structure.sites:
-                if site.occu == 1 or abs(site.occu - 1) < 1e-3:
-                    clean_sites.append(site)
-
-            structure = Structure.from_sites(clean_sites)
-
-            # === ③ 再次标准化，让 py3Dmol 正确读入 ===
-            structure = Structure.from_dict(structure.as_dict())
-
-            return structure
+                return None
 
     except Exception as e:
         st.error(f"Materials Project fetch failed: {e}")
         return None
-
 
 
 def load_from_COD(formula):
@@ -368,5 +434,6 @@ if submit_button:
 
         del predictor
         gc.collect()
+
 
 
