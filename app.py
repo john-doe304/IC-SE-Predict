@@ -438,7 +438,7 @@ if submit_button:
     structure = load_crystal_structure_public(formula_input)
 
     if structure:
-        display_structure_py3Dmol(structure)
+       display_structure_mp_exact(structure)
     else:
         st.warning("Cannot find structure for this material.")
 
@@ -487,6 +487,7 @@ if submit_button:
 
         del predictor
         gc.collect()
+
 
 
 
