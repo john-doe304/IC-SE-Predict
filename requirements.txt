@@ -1,23 +1,20 @@
-# Core numerical / data
-numpy==1.23.5
-pandas==1.5.3
-scipy==1.10.1
-
-# Materials / chemistry
-pymatgen==2023.8.10
-matminer==0.8.0
-mordred==1.2.0
-rdkit-pypi==2022.9.5
-py3Dmol==1.8.2
-
-# ML
-scikit-learn==1.2.2
-autogluon.tabular==0.8.2
-
-# Streamlit & related
-streamlit==1.30.0
+# Fix Streamlit dependency conflict
 rich==13.7.1
+
+streamlit==1.30.0
+rdkit==2024.9.6
+numpy==1.26.4
+pandas==2.1.4
+autogluon==1.2.0
+pillow==10.4.0
+
+pymatgen==2023.9.10
+matminer==0.9.3
+
+mordred
+py3Dmol
 
 # Utilities
 requests
 plotly
+
