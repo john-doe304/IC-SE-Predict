@@ -244,7 +244,7 @@ def load_crystal_structure_public(formula):
 # =====================================================
 def display_structure_py3Dmol(structure):
     try:
-        # 强制 conventional cell
+        # Materials Project official: use conventional standard cell
         try:
             structure = structure.get_conventional_structure()
         except:
@@ -252,22 +252,39 @@ def display_structure_py3Dmol(structure):
 
         cif_str = structure.to(fmt="cif")
 
-
-        view = py3Dmol.view(width=600, height=420)
+        view = py3Dmol.view(width=650, height=500)
         view.addModel(cif_str, "cif")
 
+        # ===== Materials Project official style =====
         view.setStyle({
-            "sphere": {"scale": 0.28},
-            "stick": {"radius": 0.15}
+            "sphere": {
+                "scale": 0.35,              # sphere size (MP-like)
+                "colorscheme": "Jmol"       # MP official color scheme
+            },
+            "stick": {
+                "radius": 0.13              # slim bonds (MP style)
+            }
         })
 
-        view.addUnitCell()
-        view.zoomTo()
+        # ===== Unit cell line (white, MP style) =====
+        view.addUnitCell({
+            "color": "white",
+            "linewidth": 2.0
+        })
 
-        st.components.v1.html(view._make_html(), height=450)
+        # ===== Background =====
+        view.setBackgroundColor("white")    # MP uses pure white
+
+        # ===== Camera / projection =====
+        view.zoomTo()                       # auto center
+        view.setProjection("orthographic")  # non-perspective, MP style
+
+        html = view._make_html()
+        st.components.v1.html(html, height=520, scrolling=False)
 
     except Exception as e:
         st.error(f"3D structure visualization failed: {e}")
+
 
 
 # =====================================================
@@ -400,6 +417,7 @@ if submit_button:
 
         del predictor
         gc.collect()
+
 
 
 
