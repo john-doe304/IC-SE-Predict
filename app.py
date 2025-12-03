@@ -229,119 +229,82 @@ def make_supercell(structure, size=(2,2,2)):
 def display_structure_mp(structure):
     """
     Render structure in MP-like style:
-    - wrap, orthogonalize, supercell
-    - sphere+stick with MP colors and covalent-radius scaling
-    - attempt polyhedra via ConvexHull if scipy available
+    - wrap
+    - orthogonalize
+    - supercell
+    - wrap AGAIN (super important!)
+    - MP colors, sphere scale, sticks
+    - optional polyhedra
     """
     try:
-        # Step A: wrap and orthogonalize
+        # Step 1: initial wrap
         try:
             s = structure.get_wrapped_structure()
         except Exception:
             s = structure.copy()
+
+        # Step 2: orthogonalize initial cell
         try:
             s = s.get_orthogonalized_structure()
         except Exception:
             pass
 
-        # Step B: supercell 2x2x2 to match MP visual fullness
+        # Step 3: supercell 2x2x2
         s = make_supercell(s, (2,2,2))
 
-        # Export CIF for py3Dmol
+        # ⭐⭐⭐ VERY IMPORTANT ⭐⭐⭐
+        # after supercell, wrap again to remove floating atoms!
+        try:
+            s = s.get_wrapped_structure()
+        except:
+            pass
+
+        # and orthogonalize AGAIN to match MP's behavior
+        try:
+            s = s.get_orthogonalized_structure()
+        except:
+            pass
+
+        # Step 4: Export CIF
         cif_str = s.to(fmt="cif")
 
-        # build view
         view = py3Dmol.view(width=800, height=620)
         view.addModel(cif_str, "cif")
 
-        # sphere scale based on covalent radius * factor
-        # fallback scale if covalent radius not available
+        # Step 5: MP-style sphere & stick
         for site in s:
             elem = site.specie.symbol
-            try:
-                cov = Element(elem).covalent_radius
-                if cov is None:
-                    cov = 0.77
-            except Exception:
-                cov = 0.77
-            sphere_scale = max(0.18, float(cov) * 0.45)  # tuned factor
-            color = hex_to_0x(MP_ELEMENT_COLORS.get(elem, None))
-            view.setStyle({"elem": elem}, {"sphere": {"scale": sphere_scale, "color": color},
-                                           "stick": {"radius": 0.10, "color": color}})
 
-        # unit cell and background
+            # covalent radius → scale
+            try:
+                cov = Element(elem).covalent_radius or 0.7
+            except:
+                cov = 0.7
+
+            sphere_scale = max(0.18, cov * 0.45)
+            color = hex_to_0x(MP_ELEMENT_COLORS.get(elem, None))
+
+            view.setStyle(
+                {"elem": elem},
+                {
+                    "sphere": {"scale": sphere_scale, "color": color},
+                    "stick": {"radius": 0.10, "color": color}
+                }
+            )
+
+        # Step 6: unit cell & camera
         view.addUnitCell({"color":"0x000000","linewidth":1.2})
         view.setBackgroundColor("white")
         view.setProjection("orthographic")
         view.zoomTo()
 
-        # Step C: attempt polyhedra (if scipy available) - approximate via convex hull meshes
+        # Step 7: (optional) polyhedra if scipy present
         if _HAVE_SCIPY:
             try:
-                # We will generate convex-hull meshes for coordination environments around cations
-                # Use a simple nearest-neighbor cutoff: find neighbors within a radius (based on covalent radii sum)
-                coords = np.array([site.coords for site in s.sites])
-                species = [site.specie.symbol for site in s.sites]
-                nsites = len(s.sites)
-
-                for i, site in enumerate(s.sites):
-                    central = site
-                    celem = central.specie.symbol
-                    # choose central atoms to build polyhedra for: typically cations (not O/Cl/S)
-                    if celem in ("O","Cl","S","F","Br"): 
-                        continue
-
-                    # find neighbors within cutoff
-                    neigh_idx = []
-                    for j, other in enumerate(s.sites):
-                        if i==j: continue
-                        # cutoff: 1.2 * (cov_rad_center + cov_rad_other)
-                        try:
-                            r1 = Element(celem).covalent_radius or 0.7
-                        except:
-                            r1 = 0.7
-                        try:
-                            r2 = Element(other.specie.symbol).covalent_radius or 0.7
-                        except:
-                            r2 = 0.7
-                        cutoff = 1.2 * (r1 + r2)
-                        dist = np.linalg.norm(np.array(site.coords) - np.array(other.coords))
-                        if dist <= cutoff:
-                            neigh_idx.append(j)
-                    if len(neigh_idx) < 3:
-                        continue
-
-                    pts = np.vstack([s.sites[j].coords for j in neigh_idx])
-                    try:
-                        hull = ConvexHull(pts)
-                    except Exception:
-                        continue
-
-                    # build OBJ string for this hull (translate pts into a mesh)
-                    obj_lines = []
-                    # vertices
-                    for p in pts:
-                        obj_lines.append("v {:.6f} {:.6f} {:.6f}".format(p[0], p[1], p[2]))
-                    # faces: hull.simplices are indices into pts
-                    for face in hull.simplices:
-                        # OBJ faces are 1-indexed
-                        a,b,c = face
-                        obj_lines.append("f {} {} {}".format(a+1, b+1, c+1))
-                    obj_text = "\n".join(obj_lines)
-
-                    # add as model (obj)
-                    try:
-                        view.addModel(obj_text, "obj")
-                        # set style for last model (mesh)
-                        view.setStyle({"model": -1}, {"mesh": {"color":"0x8fbc8f", "opacity":0.35}})
-                    except Exception:
-                        # if addModel fails, ignore (we still have sphere+stick)
-                        pass
-            except Exception:
-                # polyhedra generation failed — ignore
+                _add_polyhedra_to_view(view, s)
+            except:
                 pass
 
-        # render
         st.components.v1.html(view._make_html(), height=680)
 
     except Exception as e:
@@ -457,3 +420,4 @@ if submit_button:
         st.dataframe(pd.DataFrame(results).iloc[:1,:])
         del predictor
         gc.collect()
+
