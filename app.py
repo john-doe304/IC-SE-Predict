@@ -1,3 +1,7 @@
+import importlib, sys
+import numpy as _np
+if not hasattr(_np, "product"):
+    _np.product = _np.prod
 import streamlit as st
 import os
 import gc
@@ -396,6 +400,7 @@ if submit_button:
 
         del predictor
         gc.collect()
+
 
 
 
