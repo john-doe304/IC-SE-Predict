@@ -280,143 +280,143 @@ def make_supercell(structure, size=(2,2,2)):
 
 
 # =====================================================
-# 2. Structure display (py3Dmol) - 最终版：包含多面体和自定义图例
+# 2. Structure display (py3Dmol) - 优化后
 # =====================================================
 def display_structure_py3Dmol(structure):
-    # Step 0 - 确保结构是 Conventional Cell
-    try:
-        structure = structure.get_conventional_structure()
-        # 尝试计算氧化态。如果失败，则不显示价态。
-        try:
-            structure.add_oxidation_state_by_guess()
-            oxi_state_dict = structure.composition.oxi_state_dict()
-        except:
-            oxi_state_dict = {}
-            st.warning("Could not determine oxidation states for the legend.")
-            
-    except Exception as e:
-        oxi_state_dict = {}
-        st.error(f"Error processing structure for display: {e}")
+    
+    # --------------------------------------------------
+    # 0. 检查结构是否有效 (防止传入 None 或非结构对象)
+    # --------------------------------------------------
+    if not isinstance(structure, Structure):
+        st.error("Invalid structure object received for display.")
         return
 
-    # Step 1 - MP style supercell (2x2x2)
-    structure_to_display = make_supercell(structure, (2, 2, 2))
+    # --------------------------------------------------
+    # 1. 尝试添加氧化态 (用于图例)
+    # --------------------------------------------------
+    try:
+        # 确保我们处理的是副本，以免修改原始结构对象
+        structure_copy = structure.copy() 
+        # 结构在 load_crystal_structure_public 中已标准化，这里直接尝试加氧化态
+        structure_copy.add_oxidation_state_by_guess()
+        oxi_state_dict = structure_copy.composition.oxi_state_dict()
+    except Exception:
+        oxi_state_dict = {}
+        # 可以选择显示警告，但为了简洁，暂时注释
+        # st.warning("Could not determine oxidation states for the legend.")
+        
+    # --------------------------------------------------
+    # 2. 生成超胞并获取 CIF 字符串
+    # --------------------------------------------------
+    # Step 2 - MP style supercell (2x2x2)
+    structure_to_display = make_supercell(structure_copy, (2, 2, 2))
     cif_str = structure_to_display.to(fmt="cif")
 
-    # -----------------------------------------------------------------
-    # A. 渲染 3D 视图
-    # -----------------------------------------------------------------
-    # 使用 st.columns 来创建一个更干净的布局容器
-    col_3d, col_empty = st.columns([1, 0.01]) 
-    
-    with col_3d:
-        view = py3Dmol.view(width=650, height=520)
-        view.addModel(cif_str, "cif")
-
-        # 使用 Jmol 颜色方案渲染原子球和键
-        view.setStyle({
-            "sphere": {
-                "scale": 0.30,
-                "colorscheme": "Jmol" 
-            },
-            "stick": {
-                "radius": 0.12,
-                "colorscheme": "Jmol"
-            }
-        })
-
-        # 添加晶胞边界
-        view.addUnitCell({"color": "white", "linewidth": 2.0})
-        view.setBackgroundColor("white")
-        view.setProjection("orthographic")
-        view.zoomTo()
-
-        # ★★★ 关键：添加多面体渲染 ★★★
-        # 假设常见的中心离子是 La 和 Zr (或结构中原子数最少的阳离子)
-        # 这段代码需要根据具体结构调整，这里以 LLZO 为例
+    try:
+        # -----------------------------------------------------------------
+        # A. 渲染 3D 视图
+        # -----------------------------------------------------------------
+        col_3d, col_empty = st.columns([1, 0.01]) 
         
-        # 识别阳离子（除了 Li，因为 Li 通常是移动离子，不作为多面体中心）
-        center_elements = [str(el) for el in structure.elements if str(el) not in ['Li', 'O', 'S', 'Cl']]
-        
-        if not center_elements:
-             # 如果没有其他重元素，则尝试 Li 或其他阳离子
-             center_elements = [str(el) for el in structure.elements if str(el) in ['Zr', 'La', 'Ge', 'P', 'Y']]
+        with col_3d:
+            view = py3Dmol.view(width=650, height=520)
+            view.addModel(cif_str, "cif")
 
-        # 遍历中心元素，以 O 为配位原子渲染多面体
-        for center_el in center_elements:
-            if center_el in ['Zr', 'La']:
-                # 使用自定义的颜色 (例如，为 Zr 使用亮绿，为 La 使用中绿)
-                poly_color = CUSTOM_LEGEND_COLORS.get(center_el, "gray")
+            # 使用 Jmol 颜色方案渲染原子球和键
+            view.setStyle({
+                "sphere": {
+                    "scale": 0.30,
+                    "colorscheme": "Jmol" 
+                },
+                "stick": {
+                    "radius": 0.12,
+                    "colorscheme": "Jmol"
+                }
+            })
+
+            # 添加晶胞边界
+            view.addUnitCell({"color": "white", "linewidth": 2.0})
+            view.setBackgroundColor("white")
+            view.setProjection("orthographic")
+            view.zoomTo()
+
+            # ★★★ 关键：添加多面体渲染 ★★★
+            center_elements = [str(el) for el in structure.elements if str(el) not in ['Li', 'O', 'S', 'Cl']]
+            
+            if not center_elements:
+                 center_elements = [str(el) for el in structure.elements if str(el) in ['Zr', 'La', 'Ge', 'P', 'Y']]
+
+            for center_el in center_elements:
+                if 'O' in structure.composition.get_el_amt_dict(): # 假设是氧化物
+                    poly_color = CUSTOM_LEGEND_COLORS.get(center_el, "gray")
+                    
+                    view.addStyle({"select": f"elem {center_el}"}, {
+                        "polyhedra": {
+                            "color": poly_color,      
+                            "opacity": 0.3,         
+                            "hidden": False,        
+                            "threshold": 2.5,       
+                            "center": f"elem {center_el}",
+                            "vertex": "elem O",     
+                            "radius": 0.12          
+                        }
+                    })
+
+            st.components.v1.html(view._make_html(), height=540, scrolling=False)
+            
+            # -----------------------------------------------------------------
+            # B. 手动创建圆角胶囊状图例 (Legend)
+            # -----------------------------------------------------------------
+            
+            elements = [str(e) for e in structure.composition.elements]
+            unique_elements = sorted(list(set(elements))) 
+
+            legend_items = []
+            
+            for element in unique_elements:
+                color = CUSTOM_LEGEND_COLORS.get(element, "#BBBBBB") 
                 
-                view.addStyle({"select": f"elem {center_el}"}, {
-                    "polyhedra": {
-                        "color": poly_color,      
-                        "opacity": 0.3,         
-                        "hidden": False,        
-                        "threshold": 2.5,       # 键长阈值
-                        "center": f"elem {center_el}",
-                        "vertex": "elem O",     # 假设是氧化物
-                        "radius": 0.12          
-                    }
-                })
+                charge_value = oxi_state_dict.get(element, 0)
+                charge_text = format_charge(charge_value)
+                
+                item_html = f"""
+                <div style='
+                    display: flex; 
+                    align-items: center; 
+                    justify-content: center;
+                    margin-left: 10px;
+                    padding: 8px 15px; 
+                    background-color: {color}; 
+                    border-radius: 25px; 
+                    box-shadow: 1px 1px 3px rgba(0,0,0,0.2);
+                    min-width: 60px;
+                    height: 35px;
+                '>
+                    <span style='font-weight: bold; font-size: 1.1em; color: #fff; text-shadow: 1px 1px 1px rgba(0,0,0,0.5);'>
+                        {element}<sup>{charge_text}</sup>
+                    </span>
+                </div>
+                """
+                legend_items.append(item_html)
 
-        st.components.v1.html(view._make_html(), height=540, scrolling=False)
-        
-        # -----------------------------------------------------------------
-        # B. 手动创建圆角胶囊状图例 (Legend)
-        # -----------------------------------------------------------------
-        
-        # 1. 获取结构中的唯一元素并排序
-        elements = [str(e) for e in structure.composition.elements]
-        unique_elements = sorted(list(set(elements))) 
-
-        legend_items = []
-        
-        # 2. 构造图例的 HTML 标记
-        for element in unique_elements:
-            color = CUSTOM_LEGEND_COLORS.get(element, "#BBBBBB") 
-            
-            charge_value = oxi_state_dict.get(element, 0)
-            charge_text = format_charge(charge_value)
-            
-            # 构造每个图例项：圆角胶囊样式
-            item_html = f"""
+            legend_html = f"""
             <div style='
                 display: flex; 
+                justify-content: flex-end; 
                 align-items: center; 
-                justify-content: center;
-                margin-left: 10px;
-                padding: 8px 15px; 
-                background-color: {color}; 
-                border-radius: 25px; 
-                box-shadow: 1px 1px 3px rgba(0,0,0,0.2);
-                min-width: 60px;
-                height: 35px;
+                margin-top: -15px; 
+                margin-bottom: 10px;
+                width: 100%;
             '>
-                <span style='font-weight: bold; font-size: 1.1em; color: #fff; text-shadow: 1px 1px 1px rgba(0,0,0,0.5);'>
-                    {element}<sup>{charge_text}</sup>
-                </span>
+                {''.join(legend_items)}
             </div>
             """
-            legend_items.append(item_html)
+            
+            st.markdown(legend_html, unsafe_allow_html=True)
 
-        # 3. 组合所有图例项，使其水平右对齐显示
-        legend_html = f"""
-        <div style='
-            display: flex; 
-            justify-content: flex-end; 
-            align-items: center; 
-            margin-top: -15px; 
-            margin-bottom: 10px;
-            width: 100%;
-        '>
-            {''.join(legend_items)}
-        </div>
-        """
-        
-        # 4. 使用 st.markdown 渲染图例
-        st.markdown(legend_html, unsafe_allow_html=True)
-
+    except Exception as e:
+        # 捕捉 3D 渲染环节可能出现的其他错误
+        st.error(f"3D structure visualization failed: {e}")
 
 # =====================================================
 # 3. Feature extraction
@@ -544,3 +544,4 @@ if submit_button:
 
         del predictor
         gc.collect()
+
