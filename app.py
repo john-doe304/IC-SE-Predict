@@ -270,7 +270,8 @@ def display_structure_py3Dmol(structure):
         view.setStyle({
             "sphere": {
                 "scale": 0.30,
-                "colorscheme": "Jmol"
+                # *** 关键修改：保留 Jmol 颜色方案，它会自动基于元素着色 ***
+                "colorscheme": "Jmol" 
             },
             "stick": {
                 "radius": 0.12
@@ -289,7 +290,41 @@ def display_structure_py3Dmol(structure):
         view.zoomTo()
 
         st.components.v1.html(view._make_html(), height=540, scrolling=False)
-
+        
+        # ==========================================================
+        # ★★★ 关键：手动添加图例（Legend）在 3D 结构下方 ★★★
+        # ==========================================================
+        elements = [str(e) for e in structure.composition.elements]
+        
+        # Jmol 颜色方案的颜色（这里我们手动指定常见元素的 Jmol 颜色作为图例背景）
+        # 注：Jmol 颜色方案是固定的，如果材料包含其他元素，可能需要扩展这个映射
+        jmol_colors = {
+            "Li": "#CC80FF", # Jmol color for Li
+            "La": "#FFBFFF", # Jmol color for La
+            "Zr": "#999999", # Jmol color for Zr
+            "O": "#FF0D0D",  # Jmol color for O
+            # 更多的元素颜色可以添加到这里
+        }
+        
+        legend_html = "<div style='display: flex; justify-content: flex-end; align-items: center; margin-top: -30px; margin-right: 15px;'>"
+        
+        # 遍历结构中的唯一元素并创建图例项
+        for element in sorted(list(set(elements))):
+            color = jmol_colors.get(element, "#CCCCCC") # 如果没有映射，使用灰色
+            
+            # 使用 HTML 创建一个圆形的彩色标签
+            legend_html += f"""
+            <div style='display: flex; align-items: center; margin-left: 15px;'>
+                <div style='width: 15px; height: 15px; border-radius: 50%; background-color: {color}; border: 1px solid #444; margin-right: 5px;'></div>
+                <span style='font-weight: bold; font-size: 1.0em;'>{element}</span>
+            </div>
+            """
+            
+        legend_html += "</div>"
+        
+        # 使用 st.markdown 渲染图例
+        st.markdown(legend_html, unsafe_allow_html=True)
+        
     except Exception as e:
         st.error(f"3D structure visualization failed: {e}")
 
@@ -427,6 +462,7 @@ if submit_button:
 
         del predictor
         gc.collect()
+
 
 
 
