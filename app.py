@@ -19,13 +19,6 @@ from rdkit.Chem.Draw import MolDraw2DSVG
 
 # --- Matminer ---
 from mordred import Calculator, descriptors
-from matminer.featurizers.composition import (
-    ElementProperty, Meredig, Stoichiometry, IonProperty
-)
-from matminer.featurizers.conversions import (
-    StrToComposition, CompositionToOxidComposition
-)
-
 
 # --- Pymatgen ---
 from pymatgen.core import Structure
@@ -33,33 +26,9 @@ from pymatgen.ext.matproj import MPRester
 from pymatgen.core.composition import Composition
 
 # =====================================================
-#  Materials Project API KEY
+#  Materials Project API KEY（直接写在代码，不使用 secrets）
 # =====================================================
 MP_API_KEY = "Gd6Y2d9mtjquU8imu8n4GdIiwCvUtZqN"
-
-
-# =====================================================
-# 自定义颜色和价态映射 (匹配 Materials Project 网站的 LLZO 样式)
-# =====================================================
-CUSTOM_LEGEND_COLORS = {
-    "Li": "#90EE90",  # 浅绿色 (Light Green)
-    "La": "#3CB371",  # 中绿色 (Medium Sea Green)
-    "Zr": "#00FF00",  # 亮绿色 (Lime)
-    "O": "#FF0000",   # 红色 (Red)
-    "P": "#FFA500",   # 磷的颜色示例
-    "S": "#FFD700",   # 硫的颜色示例
-    "Ge": "#668F8F",  # 锗的颜色示例
-    "Cl": "#00FF00",  # 氯的颜色示例 (与 Zr 冲突，但作为示例)
-    "Y": "#80FFB3",   # 钇的颜色示例
-}
-
-# 辅助函数：将价态数字转换为 HTML 格式的上下标字符串
-def format_charge(charge):
-    if charge > 0:
-        return f"+{int(charge)}"
-    elif charge < 0:
-        return f"{int(charge)}"
-    return ""
 
 
 # =====================================================
@@ -135,7 +104,6 @@ submit_button = st.button("Submit and Predict")
 # =====================================================
 @st.cache_resource(show_spinner=False)
 def load_predictor():
-    # 假设模型文件 ag-20251024_075719 存在于当前目录下
     return TabularPredictor.load("./ag-20251024_075719")
 
 
@@ -280,175 +248,67 @@ def make_supercell(structure, size=(2,2,2)):
 
 
 # =====================================================
-# 2. Structure display (py3Dmol) - 最终、精确还原 MP 样式
+# 2. Structure display (py3Dmol)
 # =====================================================
 def display_structure_py3Dmol(structure):
-    
-    # --------------------------------------------------
-    # 0. 结构标准化与氧化态获取
-    # --------------------------------------------------
-    if not isinstance(structure, Structure):
-        st.error("Invalid structure object received for display.")
-        return
-
-    # 尝试添加氧化态 (用于图例)
     try:
-        # 确保我们处理的是副本
-        structure_copy = structure.copy() 
-        # 尝试猜测氧化态
-        structure_copy.add_oxidation_state_by_guess()
-        oxi_state_dict = structure_copy.composition.oxi_state_dict()
-    except Exception:
-        # 如果失败，图例中价态默认为空
-        oxi_state_dict = {}
-        
-    # --------------------------------------------------
-    # 1. 生成超胞并获取 CIF 字符串
-    # --------------------------------------------------
-    structure_to_display = make_supercell(structure_copy, (2, 2, 2))
-    cif_str = structure_to_display.to(fmt="cif")
+        # Step 0 - conventional cell
+        try:
+            structure = structure.get_conventional_structure()
+        except:
+            pass
 
-    try:
-        # -----------------------------------------------------------------
-        # A. 渲染 3D 视图
-        # -----------------------------------------------------------------
-        col_3d, col_empty = st.columns([1, 0.01]) 
-        
-        with col_3d:
-            view = py3Dmol.view(width=650, height=520)
-            view.addModel(cif_str, "cif")
+        # Step 1 - MP style supercell (2x2x2)
+        structure = make_supercell(structure, (2,2,2))
 
-            # ★★★ 关键修改 1：移除 colorscheme，改为自定义颜色映射 (Atom Property) ★★★
-            # 这样原子颜色会与 CUSTOM_LEGEND_COLORS 一致
-            
-            # 定义原子颜色属性
-            color_prop = {}
-            for el in structure_copy.elements:
-                color = CUSTOM_LEGEND_COLORS.get(str(el), "#BBBBBB") # 使用自定义颜色
-                color_prop[str(el)] = color
-                
-            # 设置原子样式
-            view.setStyle({
-                "sphere": {
-                    "scale": 0.30,
-                    # 使用颜色属性字典
-                    "color": color_prop
-                },
-                "stick": {
-                    "radius": 0.12,
-                    "colorscheme": "Jmol" # 键的颜色保持默认或自定义
-                }
-            })
+        cif_str = structure.to(fmt="cif")
 
-            # 添加晶胞边界
-            view.addUnitCell({"color": "white", "linewidth": 2.0})
-            view.setBackgroundColor("white")
-            view.setProjection("orthographic")
-            view.zoomTo()
+        view = py3Dmol.view(width=650, height=520)
+        view.addModel(cif_str, "cif")
 
-            # ★★★ 关键修改 2：多面体渲染 (以 LLZO 为例) ★★★
-            # 假设 O 是配位原子。中心原子为 La 和 Zr (或结构中原子数最少的重阳离子)
-            
-            polyhedra_centers = ['Zr', 'La'] # 假设我们只想渲染这两种多面体
-            
-            for center_el in polyhedra_centers:
-                if center_el in structure.composition.get_el_amt_dict():
-                    # 多面体的颜色要与图例/原子颜色一致
-                    poly_color = CUSTOM_LEGEND_COLORS.get(center_el, "gray")
-                    
-                    view.addStyle({"select": f"elem {center_el}"}, {
-                        "polyhedra": {
-                            "color": poly_color,      
-                            "opacity": 0.35,         # 略微提高透明度
-                            "hidden": False,        
-                            "threshold": 2.5,       # 键长阈值（氧化物常用）
-                            "center": f"elem {center_el}",
-                            "vertex": "elem O",     # O 通常是配位原子
-                            "radius": 0.12          
-                        }
-                    })
-            
-            # 如果是非氧化物，例如硫化物 Li10GeP2S12
-            if 'S' in structure.composition.get_el_amt_dict() and 'O' not in structure.composition.get_el_amt_dict():
-                # 对于硫化物，以 S 为顶点，中心为 Ge, P, 等
-                center_elements_sulfide = ['Ge', 'P']
-                for center_el in center_elements_sulfide:
-                     if center_el in structure.composition.get_el_amt_dict():
-                        poly_color = CUSTOM_LEGEND_COLORS.get(center_el, "gray")
-                        view.addStyle({"select": f"elem {center_el}"}, {
-                            "polyhedra": {
-                                "color": poly_color,      
-                                "opacity": 0.35,         
-                                "hidden": False,        
-                                "threshold": 2.7,       # 键长阈值（硫化物略大）
-                                "center": f"elem {center_el}",
-                                "vertex": "elem S",     # S 是配位原子
-                                "radius": 0.12          
-                            }
-                        })
-            
-            view.zoomTo() # 重新缩放以确保所有元素可见
+        # Step 2 - MP style rendering
+        view.setStyle({
+            "sphere": {
+                "scale": 0.30,
+                "colorscheme": "Jmol"
+            },
+            "stick": {
+                "radius": 0.12
+            }
+        })
 
-            st.components.v1.html(view._make_html(), height=540, scrolling=False)
-            
-            # -----------------------------------------------------------------
-            # B. 手动创建圆角胶囊状图例 (Legend) - 与上次相同
-            # -----------------------------------------------------------------
-            
-            elements = [str(e) for e in structure.composition.elements]
-            unique_elements = sorted(list(set(elements))) 
+        # Step 3 - MP style unit cell
+        view.addUnitCell({
+            "color": "white",
+            "linewidth": 2.0
+        })
 
-            legend_items = []
-            
-            for element in unique_elements:
-                color = CUSTOM_LEGEND_COLORS.get(element, "#BBBBBB") 
-                
-                charge_value = oxi_state_dict.get(element, 0)
-                charge_text = format_charge(charge_value)
-                
-                item_html = f"""
-                <div style='
-                    display: flex; 
-                    align-items: center; 
-                    justify-content: center;
-                    margin-left: 10px;
-                    padding: 8px 15px; 
-                    background-color: {color}; 
-                    border-radius: 25px; 
-                    box-shadow: 1px 1px 3px rgba(0,0,0,0.2);
-                    min-width: 60px;
-                    height: 35px;
-                '>
-                    <span style='font-weight: bold; font-size: 1.1em; color: #fff; text-shadow: 1px 1px 1px rgba(0,0,0,0.5);'>
-                        {element}<sup>{charge_text}</sup>
-                    </span>
-                </div>
-                """
-                legend_items.append(item_html)
+        # Step 4 - background and camera
+        view.setBackgroundColor("white")
+        view.setProjection("orthographic")
+        view.zoomTo()
 
-            legend_html = f"""
-            <div style='
-                display: flex; 
-                justify-content: flex-end; 
-                align-items: center; 
-                margin-top: -15px; 
-                margin-bottom: 10px;
-                width: 100%;
-            '>
-                {''.join(legend_items)}
-            </div>
-            """
-            
-            st.markdown(legend_html, unsafe_allow_html=True)
+        st.components.v1.html(view._make_html(), height=540, scrolling=False)
 
     except Exception as e:
         st.error(f"3D structure visualization failed: {e}")
+
+
+
+
 
 # =====================================================
 # 3. Feature extraction
 # =====================================================
 def calculate_material_features(formula):
     try:
+        from matminer.featurizers.composition import (
+            ElementProperty, Meredig, Stoichiometry, IonProperty
+        )
+        from matminer.featurizers.conversions import (
+            StrToComposition, CompositionToOxidComposition
+        )
+
         df = pd.DataFrame({"Formula": [formula]})
         df = StrToComposition().featurize_dataframe(df, "Formula", ignore_errors=True)
 
@@ -518,7 +378,7 @@ if submit_button:
     structure = load_crystal_structure_public(formula_input)
 
     if structure:
-        display_structure_py3Dmol(structure)
+       display_structure_py3Dmol(structure)
     else:
         st.warning("Cannot find structure for this material.")
 
@@ -538,7 +398,7 @@ if submit_button:
         predictor = load_predictor()
     except:
         predictor = None
-        st.error("Model loading failed. Please ensure the model file is present.")
+        st.error("Model loading failed.")
 
     if predictor:
         input_data = {"Formula": [formula_input], "Temp": [temperature]}
@@ -559,16 +419,20 @@ if submit_button:
         results = {}
         for model in models:
             try:
-                # 确保输入数据的列与训练模型时使用的特征列一致
-                # 这里假设 required_descriptors 包含了训练时需要的全部特征
-                predict_df = input_df[required_descriptors].copy() 
-                results[model] = predictor.predict(predict_df, model=model)
-            except Exception as e:
-                results[model] = f"Error: {e}"
+                results[model] = predictor.predict(input_df, model=model)
+            except:
+                results[model] = "Error"
 
         st.dataframe(pd.DataFrame(results).iloc[:1, :])
 
         del predictor
         gc.collect()
+
+
+
+
+
+
+
 
 
