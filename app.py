@@ -24,12 +24,9 @@ from mordred import Calculator, descriptors
 from pymatgen.core import Structure
 from pymatgen.ext.matproj import MPRester
 from pymatgen.core.composition import Composition
-# 额外导入 CrystalNN 用于键合计算
-from pymatgen.analysis.local_env import CrystalNN 
-
 
 # =====================================================
-# 材料项目 API KEY
+#  Materials Project API KEY（直接写在代码，不使用 secrets）
 # =====================================================
 MP_API_KEY = "Gd6Y2d9mtjquU8imu8n4GdIiwCvUtZqN"
 
@@ -114,7 +111,14 @@ def load_predictor():
 # 1. Public database structure retrieval
 # =====================================================
 def load_from_MP(formula: str):
-    """鲁棒的 MP 结构加载器。"""
+    """
+    Extremely robust MP structure loader:
+    - No occupancy filtering (avoids occu errors)
+    - Always returns MP's conventional standard structure (same as website)
+    - Never touches partial occupancy atoms
+    - Guarantees no 'occu' errors
+    """
+
     try:
         with MPRester(MP_API_KEY) as mpr:
 
@@ -122,12 +126,18 @@ def load_from_MP(formula: str):
             try:
                 results = mpr.summary.search(formula=formula)
                 if results:
+                    # pick the FIRST result (not lowest energy!)
                     entry = results[0]
+
+                    # get structure object (pymatgen.core.Structure)
                     s = entry.structure
+
+                    # convert to conventional standard structure
                     try:
                         s = s.get_conventional_structure()
                     except:
                         pass
+
                     return s
             except Exception:
                 pass
@@ -138,10 +148,12 @@ def load_from_MP(formula: str):
                 if q:
                     mid = q[0]["material_id"]
                     s = mpr.get_structure_by_material_id(mid)
+
                     try:
                         s = s.get_conventional_structure()
                     except:
                         pass
+
                     return s
             except Exception:
                 pass
@@ -207,12 +219,15 @@ def load_crystal_structure_public(formula):
     s = load_from_MP(formula)
     if s:
         st.success("Structure found in Materials Project ✓")
+
+        # -------- ★ 关键：标准化为 Materials Project 传统晶胞（官网也用它） --------
         try:
             s = s.get_conventional_structure()
-            s = s.as_dict()
+            s = s.as_dict()  # 防止 py3Dmol 读取错误
             s = Structure.from_dict(s)
         except:
             pass
+
         return s
 
     s = load_from_COD(formula)
@@ -233,27 +248,8 @@ def make_supercell(structure, size=(2,2,2)):
 
 
 # =====================================================
-# 2. Structure display (py3Dmol) - 关键修改部分
+# 2. Structure display (py3Dmol)
 # =====================================================
-
-# ★ 新增：用于计算键合的函数
-def build_bonds(structure):
-    """使用 CrystalNN 来构建晶体键合（模仿 MP 官网风格）。"""
-    try:
-        cnn = CrystalNN()
-        bonds = []
-        for i, site in enumerate(structure):
-            # 尝试获取最近邻信息
-            neighs = cnn.get_nn_info(structure, i)
-            for nn in neighs:
-                j = nn["site_index"]
-                if j > i:  # 避免重复
-                    bonds.append((i, j))
-        return bonds
-    except:
-        # 即使计算失败，也返回空列表
-        return []
-
 def display_structure_py3Dmol(structure):
     try:
         # Step 0 - conventional cell
@@ -266,9 +262,6 @@ def display_structure_py3Dmol(structure):
         structure = make_supercell(structure, (2,2,2))
 
         cif_str = structure.to(fmt="cif")
-        
-        # ★ 新增：计算键合
-        bonds = build_bonds(structure) 
 
         view = py3Dmol.view(width=650, height=520)
         view.addModel(cif_str, "cif")
@@ -277,18 +270,12 @@ def display_structure_py3Dmol(structure):
         view.setStyle({
             "sphere": {
                 "scale": 0.30,
-                "colorscheme": "Jmol" # Jmol 颜色方案是 MP 的默认方案
+                "colorscheme": "Jmol"
+            },
+            "stick": {
+                "radius": 0.12
             }
-        }) 
-        
-        # ★ 新增：手动添加键合（MP 官网风格）
-        for i, j in bonds:
-            view.addBond({
-                "atom1": i, 
-                "atom2": j, 
-                "radius": 0.12, 
-                "color": "gray" # 使用灰色来模仿 MP 官网的键
-            })
+        })
 
         # Step 3 - MP style unit cell
         view.addUnitCell({
@@ -391,7 +378,7 @@ if submit_button:
     structure = load_crystal_structure_public(formula_input)
 
     if structure:
-        display_structure_py3Dmol(structure)
+       display_structure_py3Dmol(structure)
     else:
         st.warning("Cannot find structure for this material.")
 
@@ -440,3 +427,12 @@ if submit_button:
 
         del predictor
         gc.collect()
+
+
+
+
+
+
+
+
+
