@@ -26,6 +26,22 @@ from pymatgen.ext.matproj import MPRester
 from pymatgen.core.composition import Composition
 
 # =====================================================
+# Jmol 颜色映射表 (常见元素)
+# =====================================================
+Jmol_COLORS = {
+    "Li": "#CC80FF", # Lithium
+    "La": "#FFBFFF", # Lanthanum
+    "Zr": "#999999", # Zirconium
+    "O": "#FF0D0D",  # Oxygen
+    "Ge": "#668F8F", # Germanium
+    "P": "#FF8000",  # Phosphorus
+    "S": "#FFFF30",  # Sulfur
+    "Cl": "#00FF00", # Chlorine
+    "Y": "#80FFB3",  # Yttrium
+    "Na": "#AA5CFF", # Sodium
+}
+
+# =====================================================
 #  Materials Project API KEY（直接写在代码，不使用 secrets）
 # =====================================================
 MP_API_KEY = "Gd6Y2d9mtjquU8imu8n4GdIiwCvUtZqN"
@@ -251,83 +267,74 @@ def make_supercell(structure, size=(2,2,2)):
 # 2. Structure display (py3Dmol)
 # =====================================================
 def display_structure_py3Dmol(structure):
+    # Step 0 - 确保结构是 Conventional Cell
     try:
-        # Step 0 - conventional cell
-        try:
-            structure = structure.get_conventional_structure()
-        except:
-            pass
+        structure = structure.get_conventional_structure()
+    except:
+        pass
 
-        # Step 1 - MP style supercell (2x2x2)
-        structure = make_supercell(structure, (2,2,2))
+    # Step 1 - MP style supercell (2x2x2)
+    structure_to_display = make_supercell(structure, (2, 2, 2))
+    cif_str = structure_to_display.to(fmt="cif")
 
-        cif_str = structure.to(fmt="cif")
+    # -----------------------------------------------------------------
+    # A. 渲染 3D 视图
+    # -----------------------------------------------------------------
+    view = py3Dmol.view(width=650, height=520)
+    view.addModel(cif_str, "cif")
 
-        view = py3Dmol.view(width=650, height=520)
-        view.addModel(cif_str, "cif")
-
-        # Step 2 - MP style rendering
-        view.setStyle({
-            "sphere": {
-                "scale": 0.30,
-                # *** 关键修改：保留 Jmol 颜色方案，它会自动基于元素着色 ***
-                "colorscheme": "Jmol" 
-            },
-            "stick": {
-                "radius": 0.12
-            }
-        })
-
-        # Step 3 - MP style unit cell
-        view.addUnitCell({
-            "color": "white",
-            "linewidth": 2.0
-        })
-
-        # Step 4 - background and camera
-        view.setBackgroundColor("white")
-        view.setProjection("orthographic")
-        view.zoomTo()
-
-        st.components.v1.html(view._make_html(), height=540, scrolling=False)
-        
-        # ==========================================================
-        # ★★★ 关键：手动添加图例（Legend）在 3D 结构下方 ★★★
-        # ==========================================================
-        elements = [str(e) for e in structure.composition.elements]
-        
-        # Jmol 颜色方案的颜色（这里我们手动指定常见元素的 Jmol 颜色作为图例背景）
-        # 注：Jmol 颜色方案是固定的，如果材料包含其他元素，可能需要扩展这个映射
-        jmol_colors = {
-            "Li": "#CC80FF", # Jmol color for Li
-            "La": "#FFBFFF", # Jmol color for La
-            "Zr": "#999999", # Jmol color for Zr
-            "O": "#FF0D0D",  # Jmol color for O
-            # 更多的元素颜色可以添加到这里
+    # 使用 Jmol 颜色方案渲染
+    view.setStyle({
+        "sphere": {
+            "scale": 0.30,
+            "colorscheme": "Jmol"
+        },
+        "stick": {
+            "radius": 0.12
         }
-        
-        legend_html = "<div style='display: flex; justify-content: flex-end; align-items: center; margin-top: -30px; margin-right: 15px;'>"
-        
-        # 遍历结构中的唯一元素并创建图例项
-        for element in sorted(list(set(elements))):
-            color = jmol_colors.get(element, "#CCCCCC") # 如果没有映射，使用灰色
-            
-            # 使用 HTML 创建一个圆形的彩色标签
-            legend_html += f"""
-            <div style='display: flex; align-items: center; margin-left: 15px;'>
-                <div style='width: 15px; height: 15px; border-radius: 50%; background-color: {color}; border: 1px solid #444; margin-right: 5px;'></div>
-                <span style='font-weight: bold; font-size: 1.0em;'>{element}</span>
-            </div>
-            """
-            
-        legend_html += "</div>"
-        
-        # 使用 st.markdown 渲染图例
-        st.markdown(legend_html, unsafe_allow_html=True)
-        
-    except Exception as e:
-        st.error(f"3D structure visualization failed: {e}")
+    })
 
+    view.addUnitCell({"color": "white", "linewidth": 2.0})
+    view.setBackgroundColor("white")
+    view.setProjection("orthographic")
+    view.zoomTo()
+
+    st.components.v1.html(view._make_html(), height=540, scrolling=False)
+    
+    # -----------------------------------------------------------------
+    # B. 手动创建图例 (Legend)
+    # -----------------------------------------------------------------
+    
+    # 1. 获取结构中的唯一元素并排序
+    elements = [str(e) for e in structure.composition.elements]
+    unique_elements = sorted(list(set(elements)), key=lambda x: structure.composition.get_atomic_fraction(x), reverse=True) # 按丰度排序
+
+    legend_items = []
+    
+    # 2. 构造图例的 HTML 标记
+    for element in unique_elements:
+        # 使用全局定义的 Jmol_COLORS 字典
+        color = Jmol_COLORS.get(element, "#CCCCCC") 
+        
+        # 构造每个图例项：一个彩色圆圈 + 元素符号
+        item_html = f"""
+        <div style='display: flex; align-items: center; margin-left: 20px;'>
+            <div style='width: 18px; height: 18px; border-radius: 50%; background-color: {color}; border: 1px solid #444; margin-right: 5px; box-shadow: 1px 1px 2px rgba(0,0,0,0.1);'></div>
+            <span style='font-weight: 700; font-size: 1.0em; color: #333;'>{element}</span>
+        </div>
+        """
+        legend_items.append(item_html)
+
+    # 3. 组合所有图例项，使其水平居中/右对齐显示在 3D 视图下方
+    legend_html = f"""
+    <div style='display: flex; justify-content: flex-end; align-items: center; padding: 10px 0; border-top: 1px solid #eee;'>
+        {''.join(legend_items)}
+    </div>
+    """
+    
+    # 4. 使用 st.markdown 渲染图例
+    # 注意：这里添加了一个 st.empty() 并使用 st.markdown 替代，确保其在 3D 视图下方渲染
+    st.markdown(legend_html, unsafe_allow_html=True)
 
 
 
@@ -462,6 +469,7 @@ if submit_button:
 
         del predictor
         gc.collect()
+
 
 
 
