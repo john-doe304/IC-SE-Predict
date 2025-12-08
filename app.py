@@ -280,35 +280,31 @@ def make_supercell(structure, size=(2,2,2)):
 
 
 # =====================================================
-# 2. Structure display (py3Dmol) - 优化后
+# 2. Structure display (py3Dmol) - 最终、精确还原 MP 样式
 # =====================================================
 def display_structure_py3Dmol(structure):
     
     # --------------------------------------------------
-    # 0. 检查结构是否有效 (防止传入 None 或非结构对象)
+    # 0. 结构标准化与氧化态获取
     # --------------------------------------------------
     if not isinstance(structure, Structure):
         st.error("Invalid structure object received for display.")
         return
 
-    # --------------------------------------------------
-    # 1. 尝试添加氧化态 (用于图例)
-    # --------------------------------------------------
+    # 尝试添加氧化态 (用于图例)
     try:
-        # 确保我们处理的是副本，以免修改原始结构对象
+        # 确保我们处理的是副本
         structure_copy = structure.copy() 
-        # 结构在 load_crystal_structure_public 中已标准化，这里直接尝试加氧化态
+        # 尝试猜测氧化态
         structure_copy.add_oxidation_state_by_guess()
         oxi_state_dict = structure_copy.composition.oxi_state_dict()
     except Exception:
+        # 如果失败，图例中价态默认为空
         oxi_state_dict = {}
-        # 可以选择显示警告，但为了简洁，暂时注释
-        # st.warning("Could not determine oxidation states for the legend.")
         
     # --------------------------------------------------
-    # 2. 生成超胞并获取 CIF 字符串
+    # 1. 生成超胞并获取 CIF 字符串
     # --------------------------------------------------
-    # Step 2 - MP style supercell (2x2x2)
     structure_to_display = make_supercell(structure_copy, (2, 2, 2))
     cif_str = structure_to_display.to(fmt="cif")
 
@@ -322,15 +318,25 @@ def display_structure_py3Dmol(structure):
             view = py3Dmol.view(width=650, height=520)
             view.addModel(cif_str, "cif")
 
-            # 使用 Jmol 颜色方案渲染原子球和键
+            # ★★★ 关键修改 1：移除 colorscheme，改为自定义颜色映射 (Atom Property) ★★★
+            # 这样原子颜色会与 CUSTOM_LEGEND_COLORS 一致
+            
+            # 定义原子颜色属性
+            color_prop = {}
+            for el in structure_copy.elements:
+                color = CUSTOM_LEGEND_COLORS.get(str(el), "#BBBBBB") # 使用自定义颜色
+                color_prop[str(el)] = color
+                
+            # 设置原子样式
             view.setStyle({
                 "sphere": {
                     "scale": 0.30,
-                    "colorscheme": "Jmol" 
+                    # 使用颜色属性字典
+                    "color": color_prop
                 },
                 "stick": {
                     "radius": 0.12,
-                    "colorscheme": "Jmol"
+                    "colorscheme": "Jmol" # 键的颜色保持默认或自定义
                 }
             })
 
@@ -340,32 +346,53 @@ def display_structure_py3Dmol(structure):
             view.setProjection("orthographic")
             view.zoomTo()
 
-            # ★★★ 关键：添加多面体渲染 ★★★
-            center_elements = [str(el) for el in structure.elements if str(el) not in ['Li', 'O', 'S', 'Cl']]
+            # ★★★ 关键修改 2：多面体渲染 (以 LLZO 为例) ★★★
+            # 假设 O 是配位原子。中心原子为 La 和 Zr (或结构中原子数最少的重阳离子)
             
-            if not center_elements:
-                 center_elements = [str(el) for el in structure.elements if str(el) in ['Zr', 'La', 'Ge', 'P', 'Y']]
-
-            for center_el in center_elements:
-                if 'O' in structure.composition.get_el_amt_dict(): # 假设是氧化物
+            polyhedra_centers = ['Zr', 'La'] # 假设我们只想渲染这两种多面体
+            
+            for center_el in polyhedra_centers:
+                if center_el in structure.composition.get_el_amt_dict():
+                    # 多面体的颜色要与图例/原子颜色一致
                     poly_color = CUSTOM_LEGEND_COLORS.get(center_el, "gray")
                     
                     view.addStyle({"select": f"elem {center_el}"}, {
                         "polyhedra": {
                             "color": poly_color,      
-                            "opacity": 0.3,         
+                            "opacity": 0.35,         # 略微提高透明度
                             "hidden": False,        
-                            "threshold": 2.5,       
+                            "threshold": 2.5,       # 键长阈值（氧化物常用）
                             "center": f"elem {center_el}",
-                            "vertex": "elem O",     
+                            "vertex": "elem O",     # O 通常是配位原子
                             "radius": 0.12          
                         }
                     })
+            
+            # 如果是非氧化物，例如硫化物 Li10GeP2S12
+            if 'S' in structure.composition.get_el_amt_dict() and 'O' not in structure.composition.get_el_amt_dict():
+                # 对于硫化物，以 S 为顶点，中心为 Ge, P, 等
+                center_elements_sulfide = ['Ge', 'P']
+                for center_el in center_elements_sulfide:
+                     if center_el in structure.composition.get_el_amt_dict():
+                        poly_color = CUSTOM_LEGEND_COLORS.get(center_el, "gray")
+                        view.addStyle({"select": f"elem {center_el}"}, {
+                            "polyhedra": {
+                                "color": poly_color,      
+                                "opacity": 0.35,         
+                                "hidden": False,        
+                                "threshold": 2.7,       # 键长阈值（硫化物略大）
+                                "center": f"elem {center_el}",
+                                "vertex": "elem S",     # S 是配位原子
+                                "radius": 0.12          
+                            }
+                        })
+            
+            view.zoomTo() # 重新缩放以确保所有元素可见
 
             st.components.v1.html(view._make_html(), height=540, scrolling=False)
             
             # -----------------------------------------------------------------
-            # B. 手动创建圆角胶囊状图例 (Legend)
+            # B. 手动创建圆角胶囊状图例 (Legend) - 与上次相同
             # -----------------------------------------------------------------
             
             elements = [str(e) for e in structure.composition.elements]
@@ -415,7 +442,6 @@ def display_structure_py3Dmol(structure):
             st.markdown(legend_html, unsafe_allow_html=True)
 
     except Exception as e:
-        # 捕捉 3D 渲染环节可能出现的其他错误
         st.error(f"3D structure visualization failed: {e}")
 
 # =====================================================
@@ -544,4 +570,5 @@ if submit_button:
 
         del predictor
         gc.collect()
+
 
