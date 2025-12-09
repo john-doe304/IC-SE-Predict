@@ -196,7 +196,7 @@ def display_structure_py3Dmol(structure):
         # Element-wise coloring (MP style)
         for site in structure:
             elem = site.specie.symbol
-            view.addStyle(
+            view.setStyle(
                 {"elem": elem},
                 {
                     "sphere": {"color": get_mp_color(elem), "scale": 0.45},
@@ -207,12 +207,16 @@ def display_structure_py3Dmol(structure):
         # Auto bonds
         view.setBondThreshold(0.45)
 
-        # Only 1 unit cell
+        # Only the unit cell
         view.addUnitCell({"color": "black", "linewidth": 1.5, "opacity": 0.9})
 
         view.setBackgroundColor("white")
         view.setProjection("orthographic")
         view.zoomTo()
+
+        # ⭐⭐⭐ THIS IS THE KEY ⭐⭐⭐
+        # Streamlit Cloud requires manual render() for py3Dmol
+        view.render()
 
         # ---- Legend (bottom-right) ----
         legend_html = "<div style='font-size:14px; position:absolute; bottom:10px; right:10px; \
@@ -233,6 +237,7 @@ def display_structure_py3Dmol(structure):
 
     except Exception as e:
         st.error(f"3D visualization failed: {e}")
+
 
 
 # =====================================================
@@ -359,3 +364,4 @@ if submit_button:
 
         del predictor
         gc.collect()
+
