@@ -101,7 +101,7 @@ st.markdown(
 col1, col2 = st.columns([2, 1])
 with col1:
     formula_input = st.text_input("Enter Chemical Formula:", placeholder="e.g., Li7La3Zr2O12")
-    temperature = st.number_input("Temperature (K):", min_value=200, max_value=1000, value=298.15, step=1)
+    temperature = st.number_input("Temperature (K):", min_value=200, max_value=1000, value=298, step=1)
     submit_button = st.button("Submit and Predict")
 with col2:
     MP_API_KEY_DEFAULT = "Gd6Y2d9mtjquU8imu8n4GdIiwCvUtZqN"
@@ -532,6 +532,7 @@ if submit_button:
                 st.error(f"Model loading failed: {str(e)}")
 
 # End of file
+
 
 
 
