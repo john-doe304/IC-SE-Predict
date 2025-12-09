@@ -507,11 +507,11 @@ if submit_button:
         # Draw legend separately too (redundant but helpful)
         # draw_element_legend(structure)
         # Features & prediction
-        st.subheader("Extracted Features & Prediction")
+        #st.subheader("Extracted Features & Prediction")
 
         # 计算材料特征
         features = calculate_material_features(formula_input)
-        st.write(f"✅ Total features extracted: {len(features)}")
+        #st.write(f"✅ Total features extracted: {len(features)}")
                 
         # 只显示选定的七个特征
         selected_features = filter_selected_features(features, required_descriptors, temperature)
@@ -579,6 +579,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"Model loading failed: {str(e)}")
+
 
 
 
