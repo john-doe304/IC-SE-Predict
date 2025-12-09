@@ -106,7 +106,7 @@ with col1:
 with col2:
     MP_API_KEY_DEFAULT = "Gd6Y2d9mtjquU8imu8n4GdIiwCvUtZqN"
     mp_key_input = st.text_input("Materials Project API key :", type="password", value=MP_API_KEY_DEFAULT)
-    
+    use_placeholder_checkbox = st.checkbox("Always use placeholder structure (ignore MP)", value=False)
     st.markdown("If MP key left empty, app will use placeholder cell.")
 
 # 指定的描述符列表 - 你选择的七个特征
@@ -532,6 +532,7 @@ if submit_button:
                 st.error(f"Model loading failed: {str(e)}")
 
 # End of file
+
 
 
 
