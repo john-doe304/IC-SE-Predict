@@ -1,156 +1,243 @@
-#############################################################
-#  修复 numpy "product" for Streamlit Cloud
-#############################################################
+import importlib, sys
 import numpy as _np
 if not hasattr(_np, "product"):
     _np.product = _np.prod
 
-
-#############################################################
-#  Imports
-#############################################################
 import streamlit as st
+import os
 import gc
+import re
 import requests
 import numpy as np
 import pandas as pd
 import py3Dmol
-
+from io import BytesIO
 from autogluon.tabular import TabularPredictor
+
+# --- RDKit ---
+from rdkit import Chem
+from rdkit.Chem.Draw import MolDraw2DSVG
+
+# --- Matminer ---
+from mordred import Calculator, descriptors
+
+# --- Pymatgen ---
 from pymatgen.core import Structure
-from pymatgen.core.composition import Composition
 from pymatgen.ext.matproj import MPRester
+from pymatgen.core.composition import Composition
 
 
-#############################################################
-#  Materials Project API Key
-#############################################################
+# =====================================================
+# Materials Project API Key
+# =====================================================
 MP_API_KEY = "Gd6Y2d9mtjquU8imu8n4GdIiwCvUtZqN"
 
 
-#############################################################
-#  Jmol Color Scheme (用于右下角 legend)
-#############################################################
-Jmol_colors = {
-    "H": "#FFFFFF",
-    "Li": "#CC80FF",
-    "La": "#FFCE00",
-    "Zr": "#94FFFF",
-    "O": "#FF0D0D",
-    "S": "#FFFF30",
-    "Cl": "#1FF01F",
-    "P": "#FF8000",
-    "Ge": "#668F8F",
-    # 默认颜色
-    "DEFAULT": "#A0A0A0"
-}
-
-
-#############################################################
-#  Streamlit Style
-#############################################################
-st.markdown("""
+# =====================================================
+# Streamlit Style
+# =====================================================
+st.markdown(
+    """
     <style>
     .stApp {
         border: 2px solid #808080;
         border-radius: 20px;
-        margin: 40px auto;
+        margin: 50px auto;
         max-width: 45%;
+        background-color: #f9f9f9f9;
         padding: 20px;
-        background-color: #FAFAFA;
+        box-sizing: border-box;
     }
     </style>
-""", unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    """
+    <h2 style="text-align:center;">Predict Ionic Conductivity of Solid Electrolytes</h2>
+    <blockquote>
+        1. Enter a chemical formula.<br>
+        2. Crystal structure will be loaded from Materials Project or COD.<br>
+        3. The ML model predicts ionic conductivity.
+    </blockquote>
+    """,
+    unsafe_allow_html=True,
+)
 
 
-#############################################################
-#  MP structure loader
-#############################################################
+# =====================================================
+# Inputs
+# =====================================================
+formula_input = st.text_input(
+    "Enter Chemical Formula:",
+    placeholder="e.g., Li7La3Zr2O12",
+)
+
+temperature = st.number_input(
+    "Select Temperature (K):", min_value=200, max_value=1000, value=298, step=10
+)
+
+submit_button = st.button("Submit and Predict")
+
+
+# =====================================================
+# Load ML Model
+# =====================================================
+@st.cache_resource(show_spinner=False)
+def load_predictor():
+    return TabularPredictor.load("./ag-20251024_075719")
+
+
+# =====================================================
+# Structure Fetching
+# =====================================================
 def load_from_MP(formula):
     try:
         with MPRester(MP_API_KEY) as mpr:
-            comp = Composition(formula).reduced_formula
-            results = mpr.summary.search(formula=comp)
 
-            if results:
-                results.sort(key=lambda x: x.energy_per_atom)
-                s = results[0].structure
-                try:
-                    s = s.get_conventional_structure()
-                except:
-                    pass
-                return s
-            else:
-                return None
+            # summary API
+            try:
+                results = mpr.summary.search(formula=formula)
+                if results:
+                    s = results[0].structure
+                    try: s = s.get_conventional_structure()
+                    except: pass
+                    return s
+            except:
+                pass
 
+            # fallback
+            try:
+                q = mpr.query(criteria={"formula": formula}, properties=["material_id"])
+                if q:
+                    mid = q[0]["material_id"]
+                    s = mpr.get_structure_by_material_id(mid)
+                    try: s = s.get_conventional_structure()
+                    except: pass
+                    return s
+            except:
+                pass
+
+        return None
     except Exception as e:
-        st.error(f"MP fetch error: {e}")
+        st.error(f"MP fetch failed: {e}")
         return None
 
 
-#############################################################
-#  Display structure in py3Dmol (fast, stable)
-#############################################################
+def load_from_COD(formula):
+    try:
+        url = f"https://www.crystallography.net/cod/result?format=core-formula&q={formula}"
+        r = requests.get(url, timeout=10)
+
+        if r.status_code != 200:
+            return None
+
+        lines = r.text.strip().split()
+        if not lines:
+            return None
+
+        cod_id = lines[0]
+        cif = requests.get(f"https://www.crystallography.net/cod/{cod_id}.cif").content
+        return Structure.from_str(cif.decode(), fmt="cif")
+    except:
+        return None
+
+
+def load_crystal_structure_public(formula):
+    st.info("Searching public databases for structure...")
+
+    s = load_from_MP(formula)
+    if s:
+        st.success("Found in Materials Project ✓")
+        try:
+            s = s.get_conventional_structure()
+            s = Structure.from_dict(s.as_dict())
+        except:
+            pass
+        return s
+
+    s = load_from_COD(formula)
+    if s:
+        st.success("Found in COD ✓")
+        return s
+
+    st.error("No structure found in MP or COD.")
+    return None
+
+
+# =====================================================
+#  MP official colors (partial map)
+# =====================================================
+MP_COLOR_MAP = {
+    "H": "#FFFFFF", "Li": "#CC0000", "O": "#FF6600", "La": "#0000FF",
+    "Zr": "#00AA00", "Cl": "#00FFFF", "S": "#FFFF00", "Y": "#9900FF",
+}
+def get_mp_color(elem):
+    return MP_COLOR_MAP.get(elem, "#AAAAAA")
+
+
+# =====================================================
+# 3D Rendering - ONLY BASIC UNIT CELL (no supercell)
+# =====================================================
 def display_structure_py3Dmol(structure):
+    try:
+        # Ensure conventional cell
+        try:
+            structure = structure.get_conventional_structure()
+        except:
+            pass
 
-    structure = structure.copy()
-    cif = structure.to(fmt="cif")
+        cif_str = structure.to(fmt="cif")
 
-    view = py3Dmol.view(width=650, height=520)
-    view.addModel(cif, "cif")
+        view = py3Dmol.view(width=850, height=620)
+        view.addModel(cif_str, "cif")
 
-    view.setStyle({
-        "stick": {"radius": 0.16},
-        "sphere": {"scale": 0.30, "colorscheme": "Jmol"}
-    })
+        # Element-wise coloring (MP style)
+        for site in structure:
+            elem = site.specie.symbol
+            view.addStyle(
+                {"elem": elem},
+                {
+                    "sphere": {"color": get_mp_color(elem), "scale": 0.45},
+                    "stick": {"radius": 0.13},
+                },
+            )
 
-    view.addUnitCell({"color": "white", "linewidth": 2})
-    view.setBackgroundColor("white")
-    view.setProjection("orthographic")
-    view.zoomTo()
+        # Auto bonds
+        view.setBondThreshold(0.45)
 
-    st.components.v1.html(view._make_html(), height=540, scrolling=False)
+        # Only 1 unit cell
+        view.addUnitCell({"color": "black", "linewidth": 1.5, "opacity": 0.9})
 
+        view.setBackgroundColor("white")
+        view.setProjection("orthographic")
+        view.zoomTo()
 
-#############################################################
-#  Show element color legend (右下角)
-#############################################################
-def display_color_legend(structure):
+        # ---- Legend (bottom-right) ----
+        legend_html = "<div style='font-size:14px; position:absolute; bottom:10px; right:10px; \
+            background-color:rgba(255,255,255,0.7); padding:10px; border-radius:8px;'> \
+            <b>Legend</b><br>"
 
-    elements = sorted(structure.symbol_set)
+        elems = sorted({str(s.specie) for s in structure})
+        for e in elems:
+            legend_html += f"<div><span style='display:inline-block;width:14px;height:14px; \
+                background:{get_mp_color(e)};margin-right:6px;'></span>{e}</div>"
 
-    legend_html = """
-        <div style='position: relative; text-align: right;'>
-        <div style='display: inline-block; padding: 10px; border: 1px solid #ccc; border-radius: 10px; background: #FFFFFF;'>
-            <b>Element Colors (Jmol)</b><br>
-    """
+        legend_html += "</div>"
 
-    for el in elements:
-        color = Jmol_colors.get(el, Jmol_colors["DEFAULT"])
-        legend_html += f"""
-            <div style="margin-top:4px;">
-                <span style="
-                    display:inline-block;
-                    width:14px;
-                    height:14px;
-                    background:{color};
-                    border-radius:50%;
-                    margin-right:6px;
-                    border: 1px solid #555;
-                "></span>
-                <span style="font-size:14px;">{el}</span>
-            </div>
-        """
+        # combine visualization + legend
+        html = view._make_html() + legend_html
 
-    legend_html += "</div></div>"
+        st.components.v1.html(html, height=650, scrolling=False)
 
-    st.markdown(legend_html, unsafe_allow_html=True)
-
+    except Exception as e:
+        st.error(f"3D visualization failed: {e}")
 
 
-#############################################################
-#  Feature extraction
-#############################################################
+# =====================================================
+# Feature extraction
+# =====================================================
 def calculate_material_features(formula):
     try:
         from matminer.featurizers.composition import (
@@ -168,25 +255,27 @@ def calculate_material_features(formula):
 
         features = {"Formula": formula}
 
-        ep = ElementProperty.from_preset("magpie")
-        df = ep.featurize_dataframe(df, "composition", ignore_errors=True)
-
+        df = ElementProperty.from_preset("magpie").featurize_dataframe(
+            df, "composition", ignore_errors=True
+        )
         df = Meredig().featurize_dataframe(df, "composition", ignore_errors=True)
         df = Stoichiometry().featurize_dataframe(df, "composition", ignore_errors=True)
 
         df = CompositionToOxidComposition().featurize_dataframe(
-            df, "composition", ignore_errors=True)
+            df, "composition", ignore_errors=True
+        )
         df = IonProperty().featurize_dataframe(
-            df, "composition_oxid", ignore_errors=True)
+            df, "composition_oxid", ignore_errors=True
+        )
 
         for col in df.select_dtypes(include=[np.number]).columns:
-            val = df[col].iloc[0]
-            features[col] = float(val) if not pd.isna(val) else 0.0
+            v = df[col].iloc[0]
+            features[col] = float(v) if not pd.isna(v) else 0.0
 
         return features
 
     except Exception as e:
-        st.warning(f"Feature extraction error: {e}")
+        st.warning(f"Feature calculation failed: {e}")
         return {"Formula": formula}
 
 
@@ -202,77 +291,71 @@ required_descriptors = [
 
 
 def filter_selected_features(features, selected, temperature):
-    out = {"Temp": float(temperature)}
+    result = {"Temp": float(temperature)}
     for f in selected:
         if f != "Temp":
-            out[f] = features.get(f, 0.0)
-    return out
+            result[f] = features.get(f, 0.0)
+    return result
 
 
-#############################################################
-#  UI INPUT
-#############################################################
-st.title("Predict Ionic Conductivity of Solid Electrolytes")
+# =====================================================
+# Main app flow
+# =====================================================
+if submit_button:
 
-formula = st.text_input("Chemical Formula", "Li7La3Zr2O12")
-temperature = st.number_input("Temperature (K)", 200, 1000, 298)
-
-submit = st.button("Submit & Predict")
-
-
-#############################################################
-#  MAIN FLOW
-#############################################################
-if submit:
-
-    st.subheader("Crystal Structure")
-
-    s = load_from_MP(formula)
-
-    if s:
-        display_structure_py3Dmol(s)
-        display_color_legend(s)   # 🔥 在右下角显示颜色 legend
-    else:
-        st.error("No structure found in Materials Project.")
+    if not formula_input:
+        st.error("Please enter a valid chemical formula.")
         st.stop()
 
-    # =============== FEATURE EXTRACTION ===============
+    # 1. Structure
+    st.subheader("Crystal Structure (Basic Unit Cell Only)")
+
+    structure = load_crystal_structure_public(formula_input)
+
+    if structure:
+        display_structure_py3Dmol(structure)
+    else:
+        st.warning("Cannot find structure for this material.")
+
+    # 2. Feature extraction
     with st.spinner("Extracting features..."):
-        feats = calculate_material_features(formula)
-        feats_sel = filter_selected_features(feats, required_descriptors, temperature)
+        features = calculate_material_features(formula_input)
+        st.write(f"Extracted {len(features)} features.")
+
+        selected = filter_selected_features(features, required_descriptors, temperature)
         st.subheader("Selected Features")
-        st.dataframe(pd.DataFrame([feats_sel]))
+        st.dataframe(pd.DataFrame([selected]))
 
-    # =============== PREDICTION ===============
-    predictor = TabularPredictor.load("./ag-20251024_075719")
-
-    df_in = {"Formula": [formula], "Temp": [temperature]}
-    for f in required_descriptors:
-        if f != "Temp":
-            df_in[f] = [feats.get(f, 0.0)]
-    df_in = pd.DataFrame(df_in)
-
-    models = [
-        "CatBoost",
-        "ExtraTreesMSE",
-        "LightGBM",
-        "KNeighborsDist",
-        "WeightedEnsemble_L2",
-        "XGBoost",
-    ]
-
-    out = {}
-
-    for m in models:
-        try:
-            out[m] = predictor.predict(df_in, model=m)
-        except:
-            out[m] = "Error"
-
+    # 3. Prediction
     st.subheader("Prediction Results")
-    st.dataframe(pd.DataFrame(out).iloc[:1, :])
 
+    try:
+        predictor = load_predictor()
+    except:
+        predictor = None
+        st.error("Model loading failed.")
 
-#############################################################
-# END
-#############################################################
+    if predictor:
+        input_data = {"Formula": [formula_input], "Temp": [temperature]}
+        for f in required_descriptors:
+            if f != "Temp":
+                input_data[f] = [features.get(f, 0.0)]
+
+        input_df = pd.DataFrame(input_data)
+
+        models = [
+            "CatBoost", "ExtraTreesMSE", "LightGBM",
+            "KNeighborsDist", "WeightedEnsemble_L2", "XGBoost"
+        ]
+
+        results = {}
+        for m in models:
+            try:
+                results[m] = predictor.predict(input_df, model=m)
+            except:
+                results[m] = "Error"
+
+        st.dataframe(pd.DataFrame(results).iloc[:1, :])
+
+        del predictor
+        gc.collect()
