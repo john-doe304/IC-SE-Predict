@@ -394,7 +394,7 @@ def structure_to_cif_string(structure):
             pass
 
 # ------------------------------- Render structure to HTML for Streamlit -------------------------------
-def render_structure_to_html(structure, width=700, height=520):
+def render_structure_to_html(structure, width=400, height=320):
     """Render pymatgen Structure to py3Dmol HTML using atom index (correct)."""
     if structure is None:
         return None
@@ -579,6 +579,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"Model loading failed: {str(e)}")
+
 
 
 
