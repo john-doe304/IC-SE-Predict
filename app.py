@@ -1,221 +1,415 @@
-# ============================================================
-#  FIX NUMPY "product" (STREAMLIT CLOUD BUG)
-# ============================================================
-import numpy as _np
-if not hasattr(_np, "product"):
-    _np.product = _np.prod
-
-# ============================================================
-#  IMPORTS
-# ============================================================
 import streamlit as st
-import gc
-import requests
-import numpy as np
+from rdkit import Chem
+from rdkit.Chem import Descriptors, Draw, AllChem
+from rdkit.Chem.Draw import MolDraw2DSVG
+from rdkit.ML.Descriptors import MoleculeDescriptors
+from mordred import Calculator, descriptors
+from mordred import Calculator, descriptors
 import pandas as pd
-import py3Dmol
 from autogluon.tabular import TabularPredictor
-
+import tempfile
+import base64
+from io import BytesIO
+from autogluon.tabular import FeatureMetadata
+import gc  # 添加垃圾回收模块
+import re  # 添加正则表达式模块用于处理SVG
+from tqdm import tqdm 
+import numpy as np
+import py3Dmol
 from pymatgen.core import Structure
-from pymatgen.ext.matproj import MPRester
-from pymatgen.core.composition import Composition
 
 
-MP_API_KEY = "Gd6Y2d9mtjquU8imu8n4GdIiwCvUtZqN"
-
-
-# ============================================================
-#  STREAMLIT UI STYLE
-# ============================================================
-st.markdown("""
+# 添加 CSS 样式
+st.markdown(
+    """
     <style>
     .stApp {
         border: 2px solid #808080;
         border-radius: 20px;
         margin: 50px auto;
         max-width: 40%;
-        background-color: #f9f9f9;
+        background-color: #f9f9f9f9;
         padding: 20px;
+        box-sizing: border-box;
+    }
+    .rounded-container h2 {
+        margin-top: -80px;
+        text-align: center;
+        background-color: #e0e0e0e0;
+        padding: 10px;
+        border-radius: 10px;
+    }
+    .rounded-container blockquote {
+        text-align: left;
+        margin: 20px auto;
+        background-color: #f0f0f0;
+        padding: 10px;
+        font-size: 1.1em;
+        border-radius: 10px;
+    }
+    /* 减小指标卡片的字体大小 */
+    .stMetric {
+        font-size: 0.9em;
+    }
+    /* 减小特征提取成功信息的字体大小 */
+    .stWrite {
+        font-size: 0.9em;
+    }
+    /* 减小子标题的字体大小 */
+    h3 {
+        font-size: 1.2em;
+    }
+    /* 减小数据框的字体大小 */
+    .dataframe {
+        font-size: 0.8em;
     }
     </style>
-""", unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True,
+)
+# 页面标题和简介
+st.markdown(
+    """
+    <div class='rounded-container'>
+        <h2 style="font-size:24px;"> Predict Ionic Conductivity of Solid Electrolytes</h2>
+        <blockquote>
+            1. This web app predicts ionic conductivity of solid electrolytes based on material composition features.<br>
+             2.  Enter a valid chemical formula string below to get the predicted result.
+        </blockquote>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+MP_COLORS = {
+    "H": "#FFFFFF", "Li": "#CC80FF", "O": "#FF0D0D", "La": "#70D4FF",
+    "Zr": "#94E0E0", "S": "#FFFF30", "P": "#FF8000", "Ge": "#4C4CFF",
+    "Cl": "#1FF01F", "Y": "#87CEEB", "Mg": "#8AFF00", "Ca": "#FFD478",
+    "Ba": "#C28FFF"
+}
 
 
-# ============================================================
-#  LOAD MP STRUCTURE (SAFE, FAST)
-# ============================================================
-def load_from_MP(formula):
+
+
+# FORMULA 输入区域
+formula_input = st.text_input("Enter Chemical Formula of the Material:",placeholder="e.g., Li7La3Zr2O12, Li10GeP2S12, Li3YCl6", )
+
+# 温度输入
+temperature = st.number_input("Select Temperature (K):", min_value=200, max_value=1000, value=298, step=10)
+
+# 提交按钮
+submit_button = st.button("Submit and Predict", key="predict_button")
+# ───── 渲染晶体结构显示区 ─────
+if formula_input:
+    st.subheader("Crystal Structure Preview (Unit Cell)")
+
+    viewer = render_crystal_structure(formula_input)
+
+    if viewer is not None:
+        viewer.show()
+
+        # 提取公式中的元素
+        import re
+        elements = sorted(set(re.findall(r"[A-Z][a-z]?", formula_input)))
+
+        # 显示图例
+        legend_html = draw_color_legend(elements)
+        st.markdown(legend_html, unsafe_allow_html=True)
+    else:
+        st.info("Cannot generate crystal structure without full structural data (CIF).")
+
+
+# 指定的描述符列表 - 你选择的七个特征
+required_descriptors = [
+    'MagpieData mean CovalentRadius',
+    'Temp',
+    'MagpieData avg_dev SpaceGroupNumber',
+    '0-norm',
+    'MagpieData mean MeltingT',
+    'MagpieData avg_dev Column',
+    'MagpieData mean NValence'
+]
+
+# 缓存模型加载器以避免重复加载
+@st.cache_resource(show_spinner=False, max_entries=1)  # 限制只缓存一个实例
+def load_predictor():
+    """缓存模型加载，避免重复加载导致内存溢出"""
+    return TabularPredictor.load("./ag-20251024_075719")
+
+def mol_to_image(mol, size=(200, 200)):
+    """将分子转换为背景颜色为 #f9f9f9f9 的SVG图像"""
+    # 创建绘图对象
+    d2d = MolDraw2DSVG(size[0], size[1])
+    
+    # 获取绘图选项
+    draw_options = d2d.drawOptions()
+    
+    # 设置背景颜色为 #f9f9f9f9
+    draw_options.background = '#f9f9f9'
+    
+    # 移除所有边框和填充
+    draw_options.padding = 0.0
+    draw_options.additionalBondPadding = 0.0
+    
+    # 移除原子标签的边框
+    draw_options.annotationFontScale = 1.0
+    draw_options.addAtomIndices = False
+    draw_options.addStereoAnnotation = False
+    draw_options.bondLineWidth = 1.5
+    
+    # 禁用所有边框
+    draw_options.includeMetadata = False
+    
+    # 绘制分子
+    d2d.DrawMolecule(mol)
+    d2d.FinishDrawing()
+    
+    # 获取SVG内容
+    svg = d2d.GetDrawingText()
+    
+    # 移除SVG中所有可能存在的边框元素
+    # 1. 移除黑色边框矩形
+    svg = re.sub(r'<rect [^>]*stroke:black[^>]*>', '', svg, flags=re.DOTALL)
+    svg = re.sub(r'<rect [^>]*stroke:#000000[^>]*>', '', svg, flags=re.DOTALL)
+    
+    # 2. 移除所有空的rect元素
+    svg = re.sub(r'<rect[^>]*/>', '', svg, flags=re.DOTALL)
+    
+    # 3. 确保viewBox正确设置
+    if 'viewBox' in svg:
+        # 设置新的viewBox以移除边距
+        svg = re.sub(r'viewBox="[^"]+"', f'viewBox="0 0 {size[0]} {size[1]}"', svg)
+    
+    return svg
+
+
+def render_crystal_structure(formula):
     try:
-        with MPRester(MP_API_KEY) as mpr:
-            comp = Composition(formula).reduced_formula
-
-            results = mpr.summary.search(formula=comp)
-
-            if results:
-                # 取能量最低的
-                results.sort(key=lambda x: x.energy_per_atom)
-                s = results[0].structure
-
-                # conventional cell
-                try:
-                    s = s.get_conventional_structure()
-                except:
-                    pass
-
-                return s
-
+        struct = Structure.from_formula(formula)
+    except Exception as e:
+        st.warning(f"Cannot build structure from formula (need CIF file for accurate structure): {e}")
         return None
 
-    except Exception as e:
-        st.error(f"MP fetch error: {e}")
-        return None
+    viewer = py3Dmol.view(width=500, height=400)
+    viewer.addModel(struct.to("cif"), "cif")
+
+    # 只显示一个晶胞
+    viewer.addUnitCell()
+
+    # 设置原子颜色（MP 配色）
+    for site in struct:
+        elem = site.specie.symbol
+        color = MP_COLORS.get(elem, "gray")
+        viewer.setStyle(
+            {"serial": struct.index(site)},
+            {"sphere": {"radius": 0.45, "color": color}}
+        )
+
+    # 球棒模型
+    viewer.setStyle({"stick": {"radius": 0.15}})
+
+    viewer.zoomTo()
+    return viewer
 
 
-# ============================================================
-#  DISPLAY STRUCTURE (FAST, NON-FREEZING)
-# ============================================================
-def display_structure_fast(structure):
-    try:
-        structure = structure.copy()
-
-        # 不扩胞（避免卡死）
-        cif = structure.to(fmt="cif")
-
-        view = py3Dmol.view(width=650, height=520)
-        view.addModel(cif, "cif")
-
-        # 使用 py3Dmol 自动键（非常快）
-        view.setStyle({
-            "stick": {"radius": 0.16},
-            "sphere": {"scale": 0.30, "colorscheme": "Jmol"}
-        })
-
-        view.addUnitCell({"color": "white", "linewidth": 2})
-
-        view.setBackgroundColor("white")
-        view.setProjection("orthographic")
-        view.zoomTo()
-
-        st.components.v1.html(view._make_html(), height=540, scrolling=False)
-
-    except Exception as e:
-        st.error(f"Render error: {e}")
+def draw_color_legend(selected_elements):
+    legend_html = "<div style='position: relative; left: 0; top: -20px;'>"
+    legend_html += "<h4>Element Color Legend</h4>"
+    for elem in selected_elements:
+        color = MP_COLORS.get(elem, "gray")
+        legend_html += f"""
+        <div style="display: flex; align-items: center;">
+            <div style="width:15px; height:15px; background:{color}; 
+                        border-radius:50%; margin-right:8px;"></div>
+            <span>{elem}</span>
+        </div>
+        """
+    legend_html += "</div>"
+    return legend_html
 
 
-# ============================================================
-#  FEATURE ENGINEERING
-# ============================================================
+# 材料特征计算函数
 def calculate_material_features(formula):
+    """计算材料的组成特征"""
     try:
         from matminer.featurizers.composition import (
             ElementProperty, Meredig, Stoichiometry, IonProperty
         )
-        from matminer.featurizers.conversions import (
-            StrToComposition, CompositionToOxidComposition
-        )
+        from matminer.featurizers.conversions import StrToComposition, CompositionToOxidComposition
 
-        df = pd.DataFrame({"Formula": [formula]})
-        df = StrToComposition().featurize_dataframe(df, "Formula", ignore_errors=True)
+        df = pd.DataFrame({'Formula': [formula]})
+        stc = StrToComposition()
+        df = stc.featurize_dataframe(df, 'Formula', ignore_errors=True)
 
-        if "composition" not in df.columns:
-            return {"Formula": formula}
+        if 'composition' not in df.columns or df['composition'].iloc[0] is None:
+            return {'Formula': formula}
 
-        features = {"Formula": formula}
+        features = {'Formula': formula}
 
-        ep = ElementProperty.from_preset("magpie")
-        df = ep.featurize_dataframe(df, "composition", ignore_errors=True)
-        df = Meredig().featurize_dataframe(df, "composition", ignore_errors=True)
-        df = Stoichiometry().featurize_dataframe(df, "composition", ignore_errors=True)
+        # 元素属性特征
+        ep = ElementProperty.from_preset('magpie')
+        df = ep.featurize_dataframe(df, 'composition', ignore_errors=True)
 
-        df = CompositionToOxidComposition().featurize_dataframe(
-            df, "composition", ignore_errors=True)
-        df = IonProperty().featurize_dataframe(
-            df, "composition_oxid", ignore_errors=True)
+        # Meredig
+        mer = Meredig()
+        df = mer.featurize_dataframe(df, 'composition', ignore_errors=True)
 
-        for col in df.select_dtypes(include=[np.number]).columns:
+        # 化学计量特征
+        sto = Stoichiometry()
+        df = sto.featurize_dataframe(df, 'composition', ignore_errors=True)
+
+        # 离子特征
+        cto = CompositionToOxidComposition()
+        df = cto.featurize_dataframe(df, 'composition', ignore_errors=True)
+        ion = IonProperty()
+        df = ion.featurize_dataframe(df, 'composition_oxid', ignore_errors=True)
+
+        # 数值特征提取
+        numeric_columns = df.select_dtypes(include=[np.number]).columns
+        for col in numeric_columns:
             val = df[col].iloc[0]
             features[col] = float(val) if not pd.isna(val) else 0.0
 
         return features
 
     except Exception as e:
-        st.warning(f"Feature extraction error: {e}")
-        return {"Formula": formula}
+        st.warning(f"Feature calculation failed: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return {'Formula': formula}
 
+# 过滤特征 - 只显示指定的七个特征
+def filter_selected_features(features_dict, selected_descriptors, temperature):
+    """只显示选定的七个特征"""
+    filtered_features = {}
+    
+    # 添加温度特征
+    
+    filtered_features['Temp'] = float(temperature)
+    
+    # 添加选定的七个特征
+    for feature_name in selected_descriptors:
+        if feature_name == 'Temp':
+            continue
+        
+        if feature_name in features_dict:
+            filtered_features[feature_name] = features_dict[feature_name]
+        else:
+            # 如果特征不存在，设为0
+            filtered_features[feature_name] = 0.0
+    
+    return filtered_features
 
-required_descriptors = [
-    "MagpieData mean CovalentRadius",
-    "Temp",
-    "MagpieData avg_dev SpaceGroupNumber",
-    "0-norm",
-    "MagpieData mean MeltingT",
-    "MagpieData avg_dev Column",
-    "MagpieData mean NValence",
-]
+# 自动匹配模型特征
+def align_features_with_model(features_dict, predictor, temperature, formula):
+    if predictor is None:
+        return pd.DataFrame([features_dict])
 
-def filter_selected_features(features, selected, temperature):
-    out = {"Temp": float(temperature)}
-    for f in selected:
-        if f != "Temp":
-            out[f] = features.get(f, 0.0)
-    return out
+    try:
+        model_features = predictor.feature_metadata.get_features()
+    except Exception:
+        model_features = []
 
+    aligned = {}
+    lower_map = {k.lower(): k for k in features_dict.keys()}
 
-# ============================================================
-#  MAIN APP LOGIC
-# ============================================================
-st.title("Predict Ionic Conductivity of Solid Electrolytes")
+    for feat in model_features:
+        f_low = feat.lower()
+        if feat in features_dict:
+            aligned[feat] = features_dict[feat]
+        elif f_low in lower_map:
+            aligned[feat] = features_dict[lower_map[f_low]]
+        elif f_low in ['temp', 'temperature', 'temperature_k']:
+            aligned[feat] = temperature
+        elif f_low in ['formula']:
+            aligned[feat] = formula
+      
+        else:
+            aligned[feat] = 0.0
 
-formula = st.text_input("Chemical Formula")
-temperature = st.number_input("Temperature (K)", 200, 1000, 298)
-submit = st.button("Submit & Predict")
+    return pd.DataFrame([aligned])
 
-if submit:
-
-    # ---------------- CRYSTAL STRUCTURE ----------------
-    st.subheader("Crystal Structure")
-
-    s = load_from_MP(formula)
-
-    if s:
-        display_structure_fast(s)
+# 如果点击提交按钮
+if submit_button:
+    if not formula_input:
+        st.error("Please enter a valid chemical formula.")
     else:
-        st.error("No structure found in Materials Project.")
-        st.stop()
+        with st.spinner("Processing material and making predictions..."):
+            try:
+                
+               
+                # 计算材料特征
+                features = calculate_material_features(formula_input)
+                st.write(f"✅ Total features extracted: {len(features)}")
+                
+                # 只显示选定的七个特征
+                selected_features = filter_selected_features(features, required_descriptors, temperature)
+                feature_df = pd.DataFrame([selected_features])
+                
+                st.subheader("Material Features")
+                st.dataframe(feature_df)
+            
+                if features:
+                    # 创建输入数据
+                    input_data = {
+                        "Formula": [formula_input],
+                       
+                        "Temp": [temperature],
+                    }
+                    
+                    # 添加数值特征
+                    numeric_features = {}
+                    for feature_name in required_descriptors:
+                        if feature_name == 'Temp':
+                            numeric_features[feature_name] = [temperature]
+                        elif feature_name in features:
+                            numeric_features[feature_name] = [features[feature_name]]
+                        else:
+                            numeric_features[feature_name] = [0.0]  # 默认值
+                        
+                    input_data.update(numeric_features)
+                        
+                    input_df = pd.DataFrame(input_data)
+                
+                # 加载模型并预测
+                try:
+                    # 使用缓存的模型加载方式
+                    predictor = load_predictor()
+                    
+                    # 只使用最关键的模型进行预测，减少内存占用
+                    essential_models = ['CatBoost',
+                                        'ExtraTreesMSE',
+                                        'LightGBM',
+                                        'KNeighborsDist',
+                                        'WeightedEnsemble_L2',
+                                        'XGBoost']
+                                        
+                    predict_df = input_df.copy()
+                    predictions_dict = {}
+                    
+                    for model in essential_models:
+                        try:
+                            predictions = predictor.predict(predict_df, model=model)
+                            predictions_dict[model] = predictions
+                        except Exception as model_error:
+                            st.warning(f"Model {model} prediction failed: {str(model_error)}")
+                            predictions_dict[model] = "Error"
 
-    # ---------------- FEATURES ----------------
-    with st.spinner("Extracting features..."):
-        feats = calculate_material_features(formula)
-        feats_sel = filter_selected_features(feats, required_descriptors, temperature)
-        st.write(feats_sel)
+                    # 显示预测结果
+                    st.write("Prediction Results (Essential Models):")
+                    st.markdown(
+                        "**Note:** WeightedEnsemble_L2 is a meta-model combining predictions from other models.")
+                    results_df = pd.DataFrame(predictions_dict)
+                    st.dataframe(results_df.iloc[:1,:])
+                    
+                    # 主动释放内存
+                    del predictor
+                    gc.collect()
 
-    # ---------------- PREDICT ----------------
-    predictor = load_predictor()
+                except Exception as e:
+                    st.error(f"Model loading failed: {str(e)}")
 
-    df_in = {"Formula": [formula], "Temp": [temperature]}
-    for f in required_descriptors:
-        if f != "Temp":
-            df_in[f] = [feats.get(f, 0.0)]
+            except Exception as e:
+                st.error(f"An error occurred: {str(e)}")
 
-    df_in = pd.DataFrame(df_in)
 
-    models = [
-        "CatBoost",
-        "ExtraTreesMSE",
-        "LightGBM",
-        "KNeighborsDist",
-        "WeightedEnsemble_L2",
-        "XGBoost",
-    ]
-
-    st.subheader("Prediction Results")
-    out = {}
-    for m in models:
-        try:
-            out[m] = predictor.predict(df_in, model=m)
-        except:
-            out[m] = "Error"
-
-    st.dataframe(pd.DataFrame(out).iloc[:1, :])
-
-    gc.collect()
