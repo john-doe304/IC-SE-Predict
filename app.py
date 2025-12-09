@@ -173,14 +173,17 @@ def load_structure_from_mp(formula, api_key):
             if not results:
                 return None, "No MP entry found"
             doc = results[0]
+
             try:
-                # prefer conventional cell
-                struct = doc.structure.get_conventional_structure()
+                # *** 强制单胞 ***
+                struct = doc.structure.get_primitive_structure()
             except Exception:
                 struct = doc.structure
+
             return struct, doc.material_id
     except Exception as e:
         return None, f"MP error: {e}"
+
 
 # ------------------------------- Placeholder cell generator -------------------------------
 def generate_placeholder_structure(formula):
@@ -381,3 +384,4 @@ if submit_button:
             pass
 
 # End of file
+
