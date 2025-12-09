@@ -21,6 +21,7 @@ from matminer.featurizers.conversions import StrToComposition, CompositionToOxid
 # Materials Project
 from mp_api.client import MPRester
 from pymatgen.core import Structure, Lattice
+from pymatgen.io.cif import CifWriter
 
 # ----------------------------------
 # MP 官方配色
@@ -123,7 +124,7 @@ def generate_placeholder_cell(formula):
 # Py3Dmol Rendering (Correct)
 # -------------------------------
 def render_structure(structure):
-    cif = structure.to("cif")
+    cif = CifWriter(structure).write_string()
     view = py3Dmol.view(width=600, height=450)
     view.addModel(cif, "cif")
 
@@ -213,3 +214,4 @@ if submit_button:
 
         del predictor
         gc.collect()
+
