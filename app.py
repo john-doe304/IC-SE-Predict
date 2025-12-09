@@ -120,6 +120,23 @@ def generate_placeholder_cell(formula):
     structure = Structure(lattice, elems, coords)
     return structure
 
+
+import tempfile
+
+def structure_to_cif_string(structure):
+    with tempfile.NamedTemporaryFile(suffix=".cif", delete=False) as tmp:
+        fname = tmp.name
+    
+    # 写入 CIF 文件
+    CifWriter(structure).write_file(fname)
+
+    # 读回 CIF 字符串
+    with open(fname, "r") as f:
+        cif_str = f.read()
+
+    return cif_str
+
+
 # -------------------------------
 # Py3Dmol Rendering (Correct)
 # -------------------------------
@@ -215,6 +232,7 @@ if submit_button:
 
         del predictor
         gc.collect()
+
 
 
 
