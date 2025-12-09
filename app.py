@@ -182,61 +182,27 @@ def get_mp_color(elem):
 # =====================================================
 def display_structure_py3Dmol(structure):
     try:
-        # Ensure conventional cell
-        try:
-            structure = structure.get_conventional_structure()
-        except:
-            pass
-
         cif_str = structure.to(fmt="cif")
 
-        view = py3Dmol.view(width=850, height=620)
-        view.addModel(cif_str, "cif")
+        # 建立 HTML 内容，手动创建 py3Dmol viewer
+        html = f"""
+        <div id="viewer" style="width:800px;height:600px; position: relative;"></div>
+        <script src="https://3Dmol.csb.pitt.edu/build/3Dmol.js"></script>
+        <script>
+            let element = document.getElementById("viewer");
+            let config = {{ backgroundColor: "white" }};
+            let viewer = $3Dmol.createViewer(element, config);
+            viewer.addModel(`{cif_str}`, "cif");
+            viewer.setStyle({{}}, {{"stick":{{"radius":0.12}}, "sphere":{{"scale":0.3}}}});
+            viewer.addUnitCell();
+            viewer.zoomTo();
+            viewer.render();
+        </script>
+        """
 
-        # Element-wise coloring (MP style)
-        for site in structure:
-            elem = site.specie.symbol
-            view.setStyle(
-                {"elem": elem},
-                {
-                    "sphere": {"color": get_mp_color(elem), "scale": 0.45},
-                    "stick": {"radius": 0.13},
-                },
-            )
-
-        # Auto bonds
-        view.setBondThreshold(0.45)
-
-        # Only the unit cell
-        view.addUnitCell({"color": "black", "linewidth": 1.5, "opacity": 0.9})
-
-        view.setBackgroundColor("white")
-        view.setProjection("orthographic")
-        view.zoomTo()
-
-        # ⭐⭐⭐ THIS IS THE KEY ⭐⭐⭐
-        # Streamlit Cloud requires manual render() for py3Dmol
-        view.render()
-
-        # ---- Legend (bottom-right) ----
-        legend_html = "<div style='font-size:14px; position:absolute; bottom:10px; right:10px; \
-            background-color:rgba(255,255,255,0.7); padding:10px; border-radius:8px;'> \
-            <b>Legend</b><br>"
-
-        elems = sorted({str(s.specie) for s in structure})
-        for e in elems:
-            legend_html += f"<div><span style='display:inline-block;width:14px;height:14px; \
-                background:{get_mp_color(e)};margin-right:6px;'></span>{e}</div>"
-
-        legend_html += "</div>"
-
-        # combine visualization + legend
-        html = view._make_html() + legend_html
-
-        st.components.v1.html(html, height=650, scrolling=False)
-
+        st.components.v1.html(html, height=620)
     except Exception as e:
-        st.error(f"3D visualization failed: {e}")
+        st.error(f"3D structure visualization failed: {e}")
 
 
 
@@ -364,4 +330,5 @@ if submit_button:
 
         del predictor
         gc.collect()
+
 
