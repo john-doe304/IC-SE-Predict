@@ -16,7 +16,11 @@ import re  # 添加正则表达式模块用于处理SVG
 from tqdm import tqdm 
 import numpy as np
 import py3Dmol
+from pymatgen.ext.matproj import MPRester
 from pymatgen.core import Structure
+from pymatgen.core.periodic_table import Element
+import streamlit.components.v1 as components
+import os
 
 
 # 添加 CSS 样式
@@ -82,10 +86,24 @@ st.markdown(
 )
 
 MP_COLORS = {
-    "H": "#FFFFFF", "Li": "#CC80FF", "O": "#FF0D0D", "La": "#70D4FF",
-    "Zr": "#94E0E0", "S": "#FFFF30", "P": "#FF8000", "Ge": "#4C4CFF",
-    "Cl": "#1FF01F", "Y": "#87CEEB", "Mg": "#8AFF00", "Ca": "#FFD478",
-    "Ba": "#C28FFF"
+    "H": "#FFFFFF", "Li": "#CC80FF", "Be": "#C2FF00", "B": "#FFB5B5", "C": "#909090",
+    "N": "#3050F8", "O": "#FF0D0D", "F": "#90E050", "Na": "#AB5CF2", "Mg": "#8AFF00",
+    "Al": "#BFA6A6", "Si": "#F0C8A0", "P": "#FF8000", "S": "#FFFF30", "Cl": "#1FF01F",
+    "K": "#8F40D4", "Ca": "#FFD478", "Sc": "#E6E6E6", "Ti": "#BFC2C7", "V": "#A6A6AB",
+    "Cr": "#8A99C7", "Mn": "#9C7AC7", "Fe": "#E06633", "Co": "#F090A0", "Ni": "#50D050",
+    "Cu": "#C88033", "Zn": "#7D80B0", "Ga": "#C28F8F", "Ge": "#4C4CFF", "As": "#BD80E3",
+    "Se": "#FFA100", "Br": "#A62929", "Kr": "#5CB8D1", "Rb": "#702EB0", "Sr": "#00FF00",
+    "Y": "#94FFFF", "Zr": "#94E0E0", "Nb": "#73C2C9", "Mo": "#54B5B5", "Ru": "#248F8F",
+    "Rh": "#0A7D8C", "Pd": "#006985", "Ag": "#C0C0C0", "Cd": "#FFD98F", "In": "#A67573",
+    "Sn": "#668080", "Sb": "#9E63B5", "Te": "#D47A00", "I": "#940094", "Xe": "#4DC4FF",
+    "Cs": "#57178F", "Ba": "#00C900", "La": "#70D4FF", "Ce": "#FFFFC7", "Pr": "#D9FFC7",
+    "Nd": "#C7FFC7", "Pm": "#A3FFC7", "Sm": "#8FFFC7", "Eu": "#61FFC7", "Gd": "#45FFC7",
+    "Tb": "#30FFC7", "Dy": "#1FFFC7", "Ho": "#00FF9C", "Er": "#00E675", "Tm": "#00D452",
+    "Yb": "#00BF69", "Lu": "#00AB6B", "Hf": "#4DC2FF", "Ta": "#4DA6FF", "W": "#2194D6",
+    "Re": "#267DAB", "Os": "#266696", "Ir": "#175487", "Pt": "#D0D0E0", "Au": "#FFD123",
+    "Hg": "#B8B8D0", "Tl": "#A6544D", "Pb": "#575961", "Bi": "#9E4FB5", "Po": "#AB5C00",
+    "At": "#754F45", "Rn": "#428296", "Fr": "#420066", "Ra": "#00C900", "Ac": "#70ABFA",
+    "Th": "#00BAFF", "Pa": "#00A1FF", "U": "#008FFF", "Np": "#0080FF", "Pu": "#006BFF"
 }
 
 
@@ -182,6 +200,75 @@ def mol_to_image(mol, size=(200, 200)):
     
     return svg
 
+def get_structure_from_mp(formula, mp_api_key):
+    """使用 Materials Project API 获取第一个匹配条目的 Structure（需要 API key）"""
+    try:
+        with MPRester(mp_api_key) as mpr:
+            # 使用 summary.search 可减少数据量
+            res = mpr.summary.search(formula=formula)
+            if not res:
+                return None, None
+            mpid = res[0].material_id
+            struct = mpr.get_structure_by_material_id(mpid)
+            return struct, mpid
+    except Exception as e:
+        # 不 raise，让调用者决定如何处理
+        return None, f"MP error: {e}"
+
+def render_structure_to_html(structure, width=600, height=450):
+    """把 pymatgen Structure 渲染为 py3Dmol 的 HTML，用于 st.components.v1.html 显示。
+       会显示单个 unit cell（pymatgen Structure 对象通常就是一个 conventional / primitive cell）。"""
+    try:
+        # 使用 CIF 字符串作为模型
+        cif_str = structure.to(fmt="cif")
+        view = py3Dmol.view(width=width, height=height)
+        view.addModel(cif_str, "cif")
+        # 先使用球棒模型
+        view.setStyle({'stick':{}})
+        view.setStyle({'sphere':{}})
+        view.zoomTo()
+        # 获取元素列表，用于图例
+        elements = sorted({str(site.specie) for site in structure.sites})
+        # 在 HTML 中加入 legend（右下角）
+        # py3Dmol 生成的 html 放在容器中，再把 legend 放到绝对定位的 div
+        html_model = view._make_html()
+        # build legend html
+        legend_items = ""
+        for el in elements:
+            color = MP_COLORS.get(el, "#9E9E9E")
+            legend_items += f"""
+                <div style="display:flex;align-items:center;margin-bottom:4px;">
+                    <div style="width:14px;height:14px;background:{color};border:1px solid #444;border-radius:3px;margin-right:6px;"></div>
+                    <div style="font-size:12px;">{el}</div>
+                </div>
+            """
+        legend_html = f"""
+        <div style="
+            position:absolute;
+            bottom:12px;
+            right:12px;
+            background: rgba(255,255,255,0.92);
+            border: 1px solid #ccc;
+            padding: 8px;
+            border-radius:6px;
+            max-width:180px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+            z-index:9999;
+        ">
+            <div style="font-weight:600;margin-bottom:6px;font-size:13px;">Element colors</div>
+            {legend_items}
+        </div>
+        """
+        # wrap combined html (position:relative container for legend)
+        final_html = f"""
+        <div style="position:relative;width:{width}px;height:{height}px;">
+            {html_model}
+            {legend_html}
+        </div>
+        """
+        return final_html
+    except Exception as e:
+        return None
 
 def render_crystal_structure(formula):
     try:
@@ -411,5 +498,6 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
+
 
 
