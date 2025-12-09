@@ -438,7 +438,7 @@ def render_structure_to_html(structure, width=200, height=120):
     legend_html = f"""
     <div style="
         position:absolute; bottom:10px; right:10px;
-        background:rgba(155,155,155,0.95);
+        background:rgba(200,200,200,0.95);
         padding:8px; border-radius:6px;
         border:1px solid #ccc; font-size:12px;
     ">
@@ -579,6 +579,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"Model loading failed: {str(e)}")
+
 
 
 
