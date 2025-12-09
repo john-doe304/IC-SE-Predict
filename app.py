@@ -82,6 +82,55 @@ MP_COLORS = {
     "Th": "#00BAFF", "Pa": "#00A1FF", "U": "#008FFF", "Np": "#0080FF", "Pu": "#006BFF"
 }
 
+# 添加 CSS 样式
+st.markdown(
+    """
+    <style>
+    .stApp {
+        border: 2px solid #808080;
+        border-radius: 20px;
+        margin: 50px auto;
+        max-width: 40%;
+        background-color: #f9f9f9f9;
+        padding: 20px;
+        box-sizing: border-box;
+    }
+    .rounded-container h2 {
+        margin-top: -80px;
+        text-align: center;
+        background-color: #e0e0e0e0;
+        padding: 10px;
+        border-radius: 10px;
+    }
+    .rounded-container blockquote {
+        text-align: left;
+        margin: 20px auto;
+        background-color: #f0f0f0;
+        padding: 10px;
+        font-size: 1.1em;
+        border-radius: 10px;
+    }
+    /* 减小指标卡片的字体大小 */
+    .stMetric {
+        font-size: 0.9em;
+    }
+    /* 减小特征提取成功信息的字体大小 */
+    .stWrite {
+        font-size: 0.9em;
+    }
+    /* 减小子标题的字体大小 */
+    h3 {
+        font-size: 1.2em;
+    }
+    /* 减小数据框的字体大小 */
+    .dataframe {
+        font-size: 0.8em;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # 页面标题和简介
 st.markdown(
     """
@@ -532,6 +581,7 @@ if submit_button:
                 st.error(f"Model loading failed: {str(e)}")
 
 # End of file
+
 
 
 
