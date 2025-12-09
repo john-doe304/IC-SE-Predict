@@ -498,9 +498,9 @@ if submit_button:
         else:
             st.info(mp_msg)
 
-        html = render_structure_to_html(structure, width=700, height=520)
+        html = render_structure_to_html(structure, width=200, height=120)
         if html:
-            components.html(html, height=560, scrolling=False)
+            components.html(html, height=160, scrolling=False)
         else:
             st.error("Failed to render structure.")
 
@@ -579,6 +579,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"Model loading failed: {str(e)}")
+
 
 
 
