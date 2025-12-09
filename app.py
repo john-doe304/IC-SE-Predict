@@ -574,13 +574,14 @@ if submit_button:
                 st.dataframe(results_df.iloc[:1,:])
 
                # 主动释放内存
-                del predictor
-                gc.collect()
+               #del predictor
+               #gc.collect()
 
             except Exception as e:
                 st.error(f"Model loading failed: {str(e)}")
 
-# End of file
+
+
 
 
 
