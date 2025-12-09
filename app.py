@@ -493,10 +493,10 @@ if submit_button:
 
         # render and show HTML in Streamlit using components
         st.subheader("Crystal Structure Preview (Unit Cell)")
-        if mp_id:
-            st.success(mp_msg)
-        else:
-            st.info(mp_msg)
+       #if mp_id:
+          #st.success(mp_msg)
+       #else:
+           #st.info(mp_msg)
 
         html = render_structure_to_html(structure, width=400, height=320)
         if html:
@@ -579,6 +579,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"Model loading failed: {str(e)}")
+
 
 
 
