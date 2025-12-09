@@ -125,15 +125,15 @@ def generate_placeholder_cell(formula):
 # -------------------------------
 def render_structure(structure):
     cif = CifWriter(structure).write_string()
-    view = py3Dmol.view(width=600, height=450)
-    view.addModel(cif, "cif")
+    viewer = py3Dmol.view(width=600, height=450)
+    viewer.addModel(cif, "cif")
 
     # Set atom styles
     for i, site in enumerate(structure.sites):
         elem = site.specie.symbol
         color = MP_COLORS.get(elem, "gray")
 
-        view.setStyle(
+        viewer.setStyle(
             {"serial": i+1},
             {
                 "sphere": {"radius": 0.5, "color": color},
@@ -141,9 +141,9 @@ def render_structure(structure):
             }
         )
 
-    view.addUnitCell()
-    view.zoomTo()
-    return view
+    viewer.addUnitCell()
+    viewer.zoomTo()
+    return viewer
 
 # -------------------------------
 # Element Legend
@@ -214,4 +214,5 @@ if submit_button:
 
         del predictor
         gc.collect()
+
 
