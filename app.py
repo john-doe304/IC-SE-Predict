@@ -121,6 +121,7 @@ st.markdown(
     /* 减小子标题的字体大小 */
     h3 {
         font-size: 1.2em;
+        margin-bottom: 0.5em;
     }
     /* 减小数据框的字体大小 */
     .dataframe {
@@ -579,6 +580,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"Model loading failed: {str(e)}")
+
 
 
 
