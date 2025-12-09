@@ -10,7 +10,7 @@ import py3Dmol
 import traceback
 import gc
 import re
-
+import tempfile
 # ML
 from autogluon.tabular import TabularPredictor
 
@@ -121,7 +121,7 @@ def generate_placeholder_cell(formula):
     return structure
 
 
-import tempfile
+
 
 def structure_to_cif_string(structure):
     with tempfile.NamedTemporaryFile(suffix=".cif", delete=False) as tmp:
@@ -232,6 +232,7 @@ if submit_button:
 
         del predictor
         gc.collect()
+
 
 
 
