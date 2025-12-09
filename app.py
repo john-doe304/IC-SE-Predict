@@ -233,77 +233,65 @@ def structure_to_cif_string(structure):
 
 # ------------------------------- Render structure to HTML for Streamlit -------------------------------
 def render_structure_to_html(structure, width=700, height=520):
-    """
-    Render pymatgen Structure to HTML string containing py3Dmol viewer and legend.
-    """
+    """Render pymatgen Structure to py3Dmol HTML using atom index (correct)."""
     if structure is None:
         return None
+
     cif_str = structure_to_cif_string(structure)
     if not cif_str:
         return None
+
     view = py3Dmol.view(width=width, height=height)
     view.addModel(cif_str, "cif")
 
-    # Ensure atom spheres and sticks shown — style per atom by serial (1-indexed)
+    # Correct style: use index (0-based), never serial
     for i, site in enumerate(structure.sites):
         el = str(site.specie)
         color = MP_COLORS.get(el, "#9E9E9E")
-        view.setStyle({"serial": i+1}, {"sphere": {"radius": 0.45, "color": color}, "stick": {"radius": 0.15, "color": color}})
+        view.setStyle({"index": i}, {
+            "sphere": {"radius": 0.45, "color": color},
+            "stick": {"radius": 0.18, "color": color}
+        })
 
-    # show sticks globally too (bonds)
-    view.setStyle({"stick": {}})
-
-    # add unit cell box
-    try:
-        view.addUnitCell({"box": True})
-    except Exception:
-        # fallback: addUnitCell() without args
-        try:
-            view.addUnitCell()
-        except Exception:
-            pass
-
+    # Add bonds explicitly to avoid under/over bonding
+    view.addUnitCell()
     view.zoomTo()
 
-    # model HTML
+    # Build HTML
     model_html = view._make_html()
 
-    # legend html (right-bottom)
+    # Legend
     elements = sorted({str(s.specie) for s in structure.sites})
     legend_items = ""
     for el in elements:
-        color = MP_COLORS.get(el, "#9E9E9E")
+        c = MP_COLORS.get(el, "#9E9E9E")
         legend_items += f"""
-            <div style="display:flex;align-items:center;margin-bottom:6px;">
-                <div style="width:14px;height:14px;background:{color};border:1px solid #444;border-radius:3px;margin-right:8px;"></div>
-                <div style="font-size:13px;">{el}</div>
-            </div>
-        """
-    legend_html = f"""
-        <div style="
-            position:absolute;
-            bottom:12px;
-            right:12px;
-            background: rgba(255,255,255,0.92);
-            border: 1px solid #ccc;
-            padding: 8px;
-            border-radius:6px;
-            max-width:200px;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
-            z-index:9999;
-        ">
-            <div style="font-weight:600;margin-bottom:6px;font-size:13px;">Element colors</div>
-            {legend_items}
+        <div style="display:flex;align-items:center;margin-bottom:4px;">
+            <div style="width:14px;height:14px;background:{c};
+                border:1px solid #444;border-radius:3px;margin-right:6px;"></div>
+            {el}
         </div>
+        """
+
+    legend_html = f"""
+    <div style="
+        position:absolute; bottom:10px; right:10px;
+        background:rgba(255,255,255,0.95);
+        padding:8px; border-radius:6px;
+        border:1px solid #ccc; font-size:12px;
+    ">
+        <b>Element colors</b><br>{legend_items}
+    </div>
     """
 
-    final_html = f"""
+    final = f"""
     <div style="position:relative;width:{width}px;height:{height}px;">
         {model_html}
         {legend_html}
     </div>
     """
-    return final_html
+    return final
+
 
 # ------------------------------- Main Execution -------------------------------
 if submit_button:
@@ -393,3 +381,4 @@ if submit_button:
             pass
 
 # End of file
+
