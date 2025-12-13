@@ -443,7 +443,7 @@ def create_element_legend(structure):
         c = MP_COLORS.get(el, "#9E9E9E")
         legend_items += f"""
         <div style="display:flex;align-items:center;margin-bottom:8px;">
-            <div style="width:18px;height:18px;background:{c};
+            <div style="width:15px;height:15px;background:{c};
                 border:1px solid #444;border-radius:3px;margin-right:8px;"></div>
             <span style="font-size:14px;">{el}</span>
         </div>
@@ -451,7 +451,7 @@ def create_element_legend(structure):
     
     legend_html = f"""
     <div style="
-        background:rgba(240,240,240,0.95);
+        background:rgba(200,200,200,0.95);
         padding:12px; border-radius:8px;
         border:1px solid #ccc;
         height:220px;
@@ -522,7 +522,7 @@ if submit_button:
             if structure:
                 legend_html = create_element_legend(structure)
                 if legend_html:
-                    components.html(legend_html, height=160, scrolling=False)
+                    components.html(legend_html, height=260, scrolling=False)
                 else:
                     st.info("Element legend not available")
 
@@ -599,4 +599,5 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"Model loading failed: {str(e)}")
+
 
