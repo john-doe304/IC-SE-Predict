@@ -278,7 +278,6 @@ def filter_selected_features(features_dict, selected_descriptors, temperature):
     filtered_features = {}
     
     # 添加温度特征
-    
     filtered_features['Temp'] = float(temperature)
     
     # 添加选定的七个特征
@@ -423,40 +422,52 @@ def render_structure_to_html(structure, width=300, height=320):
     # Build HTML
     model_html = view._make_html()
 
-    # Legend
+    # 只返回结构HTML，不包含图例
+    structure_html = f"""
+    <div style="width:{width}px;height:{height}px;">
+        {model_html}
+    </div>
+    """
+    
+    return structure_html
+
+# ------------------------------- 创建单独的元素颜色图例函数 -------------------------------
+def create_element_legend(structure):
+    """创建独立的元素颜色图例"""
+    if structure is None:
+        return None
+    
     elements = sorted({str(s.specie) for s in structure.sites})
     legend_items = ""
     for el in elements:
         c = MP_COLORS.get(el, "#9E9E9E")
         legend_items += f"""
-        <div style="display:flex;align-items:center;margin-bottom:4px;">
-            <div style="width:14px;height:14px;background:{c};
-                border:1px solid #444;border-radius:3px;margin-right:6px;"></div>
-            {el}
+        <div style="display:flex;align-items:center;margin-bottom:8px;">
+            <div style="width:18px;height:18px;background:{c};
+                border:1px solid #444;border-radius:3px;margin-right:8px;"></div>
+            <span style="font-size:14px;">{el}</span>
         </div>
         """
-
+    
     legend_html = f"""
     <div style="
-        position:absolute; bottom:10px; right:10px;
-        background:rgba(200,200,200,0.95);
-        padding:8px; border-radius:6px;
-        border:1px solid #ccc; font-size:12px;
+        background:rgba(240,240,240,0.95);
+        padding:12px; border-radius:8px;
+        border:1px solid #ccc;
+        height:220px;
+        display:flex;
+        flex-direction:column;
+        justify-content:center;
+        width: 180px;
     ">
-        <b>Element colors</b><br>{legend_items}
+        <div style="margin-bottom:12px; font-weight:bold; font-size:16px; text-align:center;">Element colors</div>
+        {legend_items}
     </div>
     """
+    
+    return legend_html
 
-    final = f"""
-    <div style="position:relative;width:{width}px;height:{height}px;">
-        {model_html}
-        {legend_html}
-    </div>
-    """
-    return final
-
-
-# ------------------------------- Main Execution -------------------------------
+# ------------------------------- 在主要执行部分更新调用方式 -------------------------------
 if submit_button:
     if not formula_input:
         st.error("Please enter a formula.")
@@ -494,19 +505,27 @@ if submit_button:
 
         # render and show HTML in Streamlit using components
         st.subheader("Crystal Structure Preview (Unit Cell)")
-       #if mp_id:
-          #st.success(mp_msg)
-       #else:
-           #st.info(mp_msg)
+        
+        # 创建两列布局：左边显示结构，右边显示图例
+        struct_col, legend_col = st.columns([3, 1])
+        
+        with struct_col:
+            # 获取并显示晶体结构
+            structure_html = render_structure_to_html(structure, width=400, height=220)
+            if structure_html:
+                components.html(structure_html, height=260, scrolling=False)
+            else:
+                st.error("Failed to render structure.")
+        
+        with legend_col:
+            # 创建并显示独立的元素颜色图例
+            if structure:
+                legend_html = create_element_legend(structure)
+                if legend_html:
+                    components.html(legend_html, height=260, scrolling=False)
+                else:
+                    st.info("Element legend not available")
 
-        html = render_structure_to_html(structure, width=400, height=220)
-        if html:
-            components.html(html, height=260, scrolling=False)
-        else:
-            st.error("Failed to render structure.")
-
-        # Draw legend separately too (redundant but helpful)
-        # draw_element_legend(structure)
         # Features & prediction
         #st.subheader("Extracted Features & Prediction")
 
@@ -580,23 +599,3 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"Model loading failed: {str(e)}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
