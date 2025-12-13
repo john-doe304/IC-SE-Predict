@@ -522,7 +522,7 @@ if submit_button:
             if structure:
                 legend_html = create_element_legend(structure)
                 if legend_html:
-                    components.html(legend_html, height=260, scrolling=False)
+                    components.html(legend_html, height=160, scrolling=False)
                 else:
                     st.info("Element legend not available")
 
@@ -599,3 +599,4 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"Model loading failed: {str(e)}")
+
