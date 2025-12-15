@@ -127,38 +127,45 @@ st.markdown(
     .dataframe {
         font-size: 0.8em;
     }
-    /* 结构和图例容器 */
-    .structure-legend-wrapper {
+    /* 结构和图例容器 - 使用flexbox确保并排显示 */
+    .structure-legend-container {
         display: flex;
         align-items: flex-start;
-        gap: 0px;  /* 设置为0，让它们紧贴 */
-        margin-top: 5px;
         width: 100%;
+        height: 260px;
+        margin: 0;
+        padding: 0;
     }
-    /* 结构容器 */
+    /* 结构容器 - 不包含canvas覆盖层 */
     .structure-container {
         flex: 1;
-        min-width: 400px;
+        height: 220px;
+        margin: 0;
+        padding: 0;
+        position: relative;
+        z-index: 1;
     }
-    /* 图例容器 - 紧贴在结构右侧 */
+    /* 图例容器 - 完全独立显示，不会被canvas覆盖 */
     .legend-container {
         background: rgba(240,240,240,0.95);
-        padding: 8px 10px;
+        padding: 12px;
         border-radius: 8px;
         border: 1px solid #ccc;
-        height: 220px;
+        height: 200px;
+        width: 150px;
+        margin-left: 10px;
+        margin-top: 0;
+        z-index: 10;
+        position: relative;
+        box-shadow: 1px 1px 3px rgba(0,0,0,0.1);
         display: flex;
         flex-direction: column;
-        justify-content: center;
-        width: 140px;
-        margin-left: 0;  /* 去掉左边距，让它们紧贴 */
-        box-shadow: 1px 1px 3px rgba(0,0,0,0.1);
     }
     /* 图例标题 */
     .legend-title {
         margin-bottom: 10px;
         font-weight: bold;
-        font-size: 14px;
+        font-size: 16px;
         text-align: center;
         color: #333;
     }
@@ -166,21 +173,20 @@ st.markdown(
     .legend-item {
         display: flex;
         align-items: center;
-        margin-bottom: 6px;
-        padding: 2px 0;
+        margin-bottom: 8px;
     }
     /* 颜色块 */
     .color-box {
-        width: 16px;
-        height: 16px;
+        width: 18px;
+        height: 18px;
         border: 1px solid #444;
         border-radius: 3px;
-        margin-right: 6px;
+        margin-right: 8px;
         flex-shrink: 0;
     }
     /* 元素标签 */
     .element-label {
-        font-size: 13px;
+        font-size: 14px;
         color: #333;
     }
     </style>
@@ -554,23 +560,26 @@ if submit_button:
         # render and show HTML in Streamlit using components
         st.subheader("Crystal Structure Preview (Unit Cell)")
         
-        # 生成结构和图例的HTML
-        structure_html = render_structure_to_html(structure, width=400, height=220)
-        legend_html = create_element_legend(structure)
+        # 方法一：使用Streamlit的列布局，确保图例不会被覆盖
+        struct_col, legend_col = st.columns([3, 1])
         
-        if structure_html and legend_html:
-            # 将结构和图例组合在一个容器中，让它们紧贴在一起
-            combined_html = f"""
-            <div class="structure-legend-wrapper">
-                <div class="structure-container">
-                    {structure_html}
-                </div>
-                {legend_html}
-            </div>
-            """
-            components.html(combined_html, height=260, scrolling=False)
-        else:
-            st.error("Failed to render structure or legend.")
+        with struct_col:
+            # 获取并显示晶体结构
+            structure_html = render_structure_to_html(structure, width=400, height=220)
+            if structure_html:
+                components.html(structure_html, height=260, scrolling=False)
+            else:
+                st.error("Failed to render structure.")
+        
+        with legend_col:
+            # 创建并显示独立的元素颜色图例
+            if structure:
+                legend_html = create_element_legend(structure)
+                if legend_html:
+                    # 使用markdown来显示图例，确保它不会被canvas覆盖
+                    st.markdown(legend_html, unsafe_allow_html=True)
+                else:
+                    st.info("Element legend not available")
 
         # Features & prediction
         #st.subheader("Extracted Features & Prediction")
