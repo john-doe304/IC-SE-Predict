@@ -475,7 +475,7 @@ if submit_button:
         st.subheader("Crystal Structure Preview (Unit Cell)")
         
         # 使用更紧凑的列布局
-        struct_col, legend_col = st.columns([3, 1], gap="small")
+        struct_col, legend_col = st.columns([5, 2], gap="small")
         
         with struct_col:
             # 获取并显示晶体结构
@@ -495,9 +495,9 @@ if submit_button:
                 for el in elements:
                     c = MP_COLORS.get(el, "#9E9E9E")
                     legend_items += f"""
-                    <div style="display: flex; align-items: center; margin-bottom: 8px; background-color: #f0f0f0;">
-                        <div style="width: 18px; height: 18px; background: {c}; border: 1px solid #444; border-radius: 3px; margin-right: 8px;"></div>
-                        <span style="font-size: 14px; color: #333; background-color: #f0f0f0;">{el}</span>
+                    <div style="display: flex; align-items: center; margin-bottom: 6px; background-color: #f0f0f0;">
+                        <div style="width: 14px; height: 14px; background: {c}; border: 1px solid #333; border-radius: 3px; margin-right: 8px;"></div>
+                        <span style="font-size: 13px; color: #222; background-color: #f0f0f0;">{el}</span>
                     </div>
                     """
                 
@@ -506,16 +506,23 @@ if submit_button:
                     background-color: #f0f0f0;
                     border-radius: 8px;
                     border: 1px solid #ccc;
-                    padding: 12px;
+                    padding: 10px 12px;
                     margin-left: 5px;
                     height: 220px;
+                    margin: 0;
                 ">
-                    <div style="text-align: center; font-weight: bold; margin-bottom: 12px; font-size: 16px; color: #333; background-color: #f0f0f0;">
+                    <div style="text-align: center; font-weight: 600; margin-bottom: 10px; font-size: 14px; color: #333; background-color: #f0f0f0;">
                         Element colors
                     </div>
                     {legend_items}
                 </div>
                 """
+
+                components.html(
+                    legend_html,
+                    height=260,
+                    scrolling=False
+               )
                 
                 # 一次性显示整个图例
                 st.markdown(legend_html, unsafe_allow_html=True)
@@ -593,3 +600,4 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"Model loading failed: {str(e)}")
+
