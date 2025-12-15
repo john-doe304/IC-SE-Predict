@@ -131,48 +131,6 @@ st.markdown(
     div[data-testid="column"] {
         padding: 0px !important;
     }
-    /* 图例容器 */
-    .legend-container {
-        background-color: #f0f0f0;
-        border-radius: 8px;
-        border: 1px solid #ccc;
-        margin-left: 5px !important;
-        margin-top: 0px !important;
-        padding: 10px 12px;
-        height: 220px;
-    }
-    /* 图例标题 */
-    .legend-title {
-        text-align: center;
-        font-weight: bold;
-        margin-bottom: 10px;
-        font-size: 16px;
-        color: #333;
-        background-color: #f0f0f0;
-        padding: 0;
-    }
-    /* 图例项 */
-    .legend-item {
-        display: flex;
-        align-items: center;
-        margin-bottom: 8px;
-        background-color: #f0f0f0;
-    }
-    /* 颜色块 */
-    .color-box {
-        width: 18px;
-        height: 18px;
-        border: 1px solid #444;
-        border-radius: 3px;
-        margin-right: 8px;
-        flex-shrink: 0;
-    }
-    /* 元素标签 */
-    .element-label {
-        font-size: 14px;
-        color: #333;
-        background-color: #f0f0f0;
-    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -528,30 +486,51 @@ if submit_button:
                 st.error("Failed to render structure.")
         
         with legend_col:
-            # 创建紧凑的元素颜色图例
+            # 创建简单的元素颜色图例 - 使用纯Streamlit方法
             if structure:
-                # 创建统一的图例容器，所有元素使用相同背景色
                 elements = sorted({str(s.specie) for s in structure.sites})
                 
-                # 使用一个完整的HTML结构
-                legend_html = f"""
-                <div class="legend-container">
-                    <div class="legend-title">Element colors</div>
-                """
+                # 使用容器样式
+                st.markdown(
+                    """
+                    <div style="
+                        background-color: #f0f0f0;
+                        border-radius: 8px;
+                        border: 1px solid #ccc;
+                        padding: 12px;
+                        margin-left: 5px;
+                        height: 220px;
+                    ">
+                    """,
+                    unsafe_allow_html=True
+                )
                 
+                # 标题
+                st.markdown(
+                    "<div style='text-align: center; font-weight: bold; margin-bottom: 12px; font-size: 16px; color: #333;'>Element colors</div>",
+                    unsafe_allow_html=True
+                )
+                
+                # 显示每个元素
                 for el in elements:
                     c = MP_COLORS.get(el, "#9E9E9E")
-                    legend_html += f"""
-                    <div class="legend-item">
-                        <div class="color-box" style="background:{c};"></div>
-                        <span class="element-label">{el}</span>
-                    </div>
-                    """
+                    
+                    # 创建每个元素的行
+                    col1, col2 = st.columns([1, 4])
+                    with col1:
+                        # 显示颜色块
+                        st.markdown(
+                            f'<div style="width: 18px; height: 18px; background: {c}; border: 1px solid #444; border-radius: 3px; margin-right: 8px;"></div>',
+                            unsafe_allow_html=True
+                        )
+                    with col2:
+                        # 显示元素名称
+                        st.markdown(
+                            f'<div style="font-size: 14px; color: #333;">{el}</div>',
+                            unsafe_allow_html=True
+                        )
                 
-                legend_html += "</div>"
-                
-                # 显示图例
-                st.markdown(legend_html, unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
 
         # Features & prediction
         #st.subheader("Extracted Features & Prediction")
@@ -626,6 +605,3 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"Model loading failed: {str(e)}")
-
-
-
