@@ -479,7 +479,17 @@ if submit_button:
         
         with struct_col:
             # 获取并显示晶体结构
-            structure_html = render_structure_to_html(structure, width=400, height=220)
+            structure_html = f"""
+           <div style="
+               width:{width}px;
+               height:{height}px;
+               margin: 0;
+               padding: 0;
+          ">
+           {model_html}
+          </div>
+          """
+
             if structure_html:
                 components.html(structure_html, height=260, scrolling=False)
             else:
@@ -600,4 +610,5 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"Model loading failed: {str(e)}")
+
 
