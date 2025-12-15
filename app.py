@@ -516,24 +516,19 @@ if submit_button:
         # render and show HTML in Streamlit using components
         st.subheader("Crystal Structure Preview (Unit Cell)")
         
-        # 使用更紧凑的列布局
+        # 1. 紧凑的列布局，gap="small" 减少了间距
         struct_col, legend_col = st.columns([3, 1], gap="small")
         
         with struct_col:
-            # 获取并显示晶体结构
+            # 2. 紧凑的结构渲染，height=260px
             structure_html = render_structure_to_html(structure, width=400, height=220)
             if structure_html:
                 components.html(structure_html, height=260, scrolling=False)
-            else:
-                st.error("Failed to render structure.")
-        
+
         with legend_col:
-            # 创建紧凑的元素颜色图例
             if structure:
-                # 创建统一的图例容器，所有元素使用相同背景色
-                elements = sorted({str(s.specie) for s in structure.sites})
-                
-                # 使用一个完整的HTML结构
+                # 3. 统一的HTML图例框
+                # legend-title 和所有 legend-item 都在 legend-container 内部
                 legend_html = f"""
                 <div class="legend-container">
                     <div class="legend-title">Element colors</div>
@@ -626,3 +621,4 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"Model loading failed: {str(e)}")
+
