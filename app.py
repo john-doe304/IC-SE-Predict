@@ -520,10 +520,12 @@ if submit_button:
         struct_col, legend_col = st.columns([3, 1], gap="small")
         
         with struct_col:
-            # 2. 紧凑的结构渲染，height=260px
+            # 获取并显示晶体结构
             structure_html = render_structure_to_html(structure, width=400, height=220)
             if structure_html:
                 components.html(structure_html, height=260, scrolling=False)
+            else:
+                st.error("Failed to render structure.")
 
         with legend_col:
             if structure:
@@ -621,4 +623,5 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"Model loading failed: {str(e)}")
+
 
