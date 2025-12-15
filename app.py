@@ -127,26 +127,6 @@ st.markdown(
     .dataframe {
         font-size: 0.8em;
     }
-    /* 调整结构和图例容器的间距 */
-    .structure-legend-container {
-        display: flex;
-        align-items: flex-start;
-        gap: 5px;
-        margin-top: 5px;
-    }
-    /* 图例样式 */
-    .element-legend {
-        background: rgba(240,240,240,0.95);
-        padding: 10px;
-        border-radius: 8px;
-        border: 1px solid #ccc;
-        height: 220px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        width: 150px;
-        margin-left: 5px;
-    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -463,15 +443,24 @@ def create_element_legend(structure):
         c = MP_COLORS.get(el, "#9E9E9E")
         legend_items += f"""
         <div style="display:flex;align-items:center;margin-bottom:8px;">
-            <div style="width:16px;height:16px;background:{c};
-                border:1px solid #444;border-radius:3px;margin-right:6px;"></div>
-            <span style="font-size:13px;">{el}</span>
+            <div style="width:18px;height:18px;background:{c};
+                border:1px solid #444;border-radius:3px;margin-right:8px;"></div>
+            <span style="font-size:14px;">{el}</span>
         </div>
         """
     
     legend_html = f"""
-    <div class="element-legend">
-        <div style="margin-bottom:10px; font-weight:bold; font-size:15px; text-align:center;">Element colors</div>
+    <div style="
+        background:rgba(240,240,240,0.95);
+        padding:12px; border-radius:8px;
+        border:1px solid #ccc;
+        height:220px;
+        display:flex;
+        flex-direction:column;
+        justify-content:center;
+        width: 180px;
+    ">
+        <div style="margin-bottom:12px; font-weight:bold; font-size:16px; text-align:center;">Element colors</div>
         {legend_items}
     </div>
     """
@@ -517,26 +506,25 @@ if submit_button:
         # render and show HTML in Streamlit using components
         st.subheader("Crystal Structure Preview (Unit Cell)")
         
-        # 使用一个容器来包裹结构和图例，减少间距
-        structure_html = render_structure_to_html(structure, width=400, height=220)
-        legend_html = create_element_legend(structure)
+        # 创建两列布局：左边显示结构，右边显示图例
+        struct_col, legend_col = st.columns([3, 1])
         
-        # 使用HTML容器将结构和图例放在一起
-        combined_html = f"""
-        <div class="structure-legend-container">
-            <div style="flex: 1;">
-                {structure_html if structure_html else ''}
-            </div>
-            <div style="margin-left: 5px;">
-                {legend_html if legend_html else ''}
-            </div>
-        </div>
-        """
+        with struct_col:
+            # 获取并显示晶体结构
+            structure_html = render_structure_to_html(structure, width=400, height=220)
+            if structure_html:
+                components.html(structure_html, height=260, scrolling=False)
+            else:
+                st.error("Failed to render structure.")
         
-        if structure_html and legend_html:
-            components.html(combined_html, height=260, scrolling=False)
-        else:
-            st.error("Failed to render structure or legend.")
+        with legend_col:
+            # 创建并显示独立的元素颜色图例
+            if structure:
+                legend_html = create_element_legend(structure)
+                if legend_html:
+                    components.html(legend_html, height=260, scrolling=False)
+                else:
+                    st.info("Element legend not available")
 
         # Features & prediction
         #st.subheader("Extracted Features & Prediction")
