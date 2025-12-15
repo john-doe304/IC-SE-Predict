@@ -127,55 +127,29 @@ st.markdown(
     .dataframe {
         font-size: 0.8em;
     }
-    /* 结构和图例容器 - 使用flexbox确保并排显示 */
-    .structure-legend-container {
-        display: flex;
-        align-items: flex-start;
-        width: 100%;
-        height: 260px;
-        margin: 0;
-        padding: 0;
-    }
-    /* 结构容器 - 不包含canvas覆盖层 */
-    .structure-container {
-        flex: 1;
-        height: 220px;
-        margin: 0;
-        padding: 0;
-        position: relative;
-        z-index: 1;
-    }
-    /* 图例容器 - 完全独立显示，不会被canvas覆盖 */
-    .legend-container {
+    /* 图例样式 */
+    .element-legend-container {
         background: rgba(240,240,240,0.95);
         padding: 12px;
         border-radius: 8px;
         border: 1px solid #ccc;
         height: 200px;
         width: 150px;
-        margin-left: 10px;
-        margin-top: 0;
-        z-index: 10;
-        position: relative;
         box-shadow: 1px 1px 3px rgba(0,0,0,0.1);
-        display: flex;
-        flex-direction: column;
+        margin-top: 20px;
     }
-    /* 图例标题 */
     .legend-title {
-        margin-bottom: 10px;
+        margin-bottom: 12px;
         font-weight: bold;
         font-size: 16px;
         text-align: center;
         color: #333;
     }
-    /* 图例项 */
     .legend-item {
         display: flex;
         align-items: center;
         margin-bottom: 8px;
     }
-    /* 颜色块 */
     .color-box {
         width: 18px;
         height: 18px;
@@ -184,7 +158,6 @@ st.markdown(
         margin-right: 8px;
         flex-shrink: 0;
     }
-    /* 元素标签 */
     .element-label {
         font-size: 14px;
         color: #333;
@@ -494,10 +467,10 @@ def render_structure_to_html(structure, width=300, height=320):
     return structure_html
 
 # ------------------------------- 创建单独的元素颜色图例函数 -------------------------------
-def create_element_legend(structure):
-    """创建独立的元素颜色图例"""
+def create_element_legend_html(structure):
+    """创建独立的元素颜色图例HTML"""
     if structure is None:
-        return None
+        return ""
     
     elements = sorted({str(s.specie) for s in structure.sites})
     
@@ -513,13 +486,37 @@ def create_element_legend(structure):
         """
     
     legend_html = f"""
-    <div class="legend-container">
+    <div class="element-legend-container">
         <div class="legend-title">Element colors</div>
         {legend_items_html}
     </div>
     """
     
     return legend_html
+
+# ------------------------------- 使用纯Streamlit创建图例 -------------------------------
+def create_element_legend_streamlit(structure):
+    """使用纯Streamlit组件创建元素颜色图例"""
+    if structure is None:
+        return
+    
+    elements = sorted({str(s.specie) for s in structure.sites})
+    
+    # 创建图例容器
+    st.markdown("**Element colors**")
+    
+    # 为每个元素创建一行显示
+    for el in elements:
+        c = MP_COLORS.get(el, "#9E9E9E")
+        col1, col2 = st.columns([1, 5])
+        with col1:
+            # 显示颜色块
+            st.markdown(
+                f'<div style="width:20px;height:20px;background:{c};border:1px solid #444;border-radius:3px;"></div>',
+                unsafe_allow_html=True
+            )
+        with col2:
+            st.write(el)
 
 # ------------------------------- 在主要执行部分更新调用方式 -------------------------------
 if submit_button:
@@ -560,7 +557,7 @@ if submit_button:
         # render and show HTML in Streamlit using components
         st.subheader("Crystal Structure Preview (Unit Cell)")
         
-        # 方法一：使用Streamlit的列布局，确保图例不会被覆盖
+        # 使用Streamlit的列布局显示结构和图例
         struct_col, legend_col = st.columns([3, 1])
         
         with struct_col:
@@ -572,14 +569,41 @@ if submit_button:
                 st.error("Failed to render structure.")
         
         with legend_col:
-            # 创建并显示独立的元素颜色图例
+            # 使用纯Streamlit创建图例，避免HTML渲染问题
             if structure:
-                legend_html = create_element_legend(structure)
-                if legend_html:
-                    # 使用markdown来显示图例，确保它不会被canvas覆盖
-                    st.markdown(legend_html, unsafe_allow_html=True)
-                else:
-                    st.info("Element legend not available")
+                # 创建简单的图例容器
+                st.markdown(
+                    """
+                    <div style="
+                        background: rgba(240,240,240,0.95);
+                        padding: 12px;
+                        border-radius: 8px;
+                        border: 1px solid #ccc;
+                        margin-top: 20px;
+                    ">
+                        <div style="text-align: center; font-weight: bold; margin-bottom: 12px; font-size: 16px;">
+                            Element colors
+                        </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                
+                # 显示每个元素的颜色
+                elements = sorted({str(s.specie) for s in structure.sites})
+                for el in elements:
+                    c = MP_COLORS.get(el, "#9E9E9E")
+                    st.markdown(
+                        f"""
+                        <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                            <div style="width: 18px; height: 18px; background: {c}; 
+                                      border: 1px solid #444; border-radius: 3px; margin-right: 8px;"></div>
+                            <span style="font-size: 14px;">{el}</span>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                
+                st.markdown("</div>", unsafe_allow_html=True)
 
         # Features & prediction
         #st.subheader("Extracted Features & Prediction")
