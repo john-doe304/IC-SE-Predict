@@ -398,42 +398,33 @@ def structure_to_cif_string(structure):
             pass
 
 # ------------------------------- Render structure to HTML for Streamlit -------------------------------
-def render_structure_to_html(structure, width=300, height=320):
-    """Render pymatgen Structure to py3Dmol HTML using atom index (correct)."""
+def render_structure_to_html(structure, width=380, height=240):
     if structure is None:
         return None
 
     cif_str = structure_to_cif_string(structure)
-    if not cif_str:
+    if cif_str is None:
         return None
 
     view = py3Dmol.view(width=width, height=height)
     view.addModel(cif_str, "cif")
 
-    # Correct style: use index (0-based), never serial
     for i, site in enumerate(structure.sites):
         el = str(site.specie)
         color = MP_COLORS.get(el, "#9E9E9E")
-        view.setStyle({"index": i}, {
-            "sphere": {"radius": 0.45, "color": color},
-            "stick": {"radius": 0.18, "color": color}
-        })
+        view.setStyle(
+            {"index": i},
+            {
+                "sphere": {"radius": 0.45, "color": color},
+                "stick": {"radius": 0.18, "color": color},
+            },
+        )
 
-    # Add bonds explicitly to avoid under/over bonding
     view.addUnitCell()
     view.zoomTo()
 
-    # Build HTML
-    model_html = view._make_html()
+    return view._make_html()
 
-    # 只返回结构HTML，不包含图例
-    structure_html = f"""
-    <div style="width:{width}px;height:{height}px;">
-        {model_html}
-    </div>
-    """
-    
-    return structure_html
 
 # ------------------------------- 在主要执行部分更新调用方式 -------------------------------
 if submit_button:
@@ -473,66 +464,57 @@ if submit_button:
 
         # render and show HTML in Streamlit using components
         st.subheader("Crystal Structure Preview (Unit Cell)")
-        
-        # 使用更紧凑的列布局
         struct_col, legend_col = st.columns([5, 2], gap="small")
-        
-        with struct_col:
-            # 获取并显示晶体结构
-            structure_html = f"""
-           <div style="
-               width:{width}px;
-               height:{height}px;
-               margin: 0;
-               padding: 0;
-          ">
-           {model_html}
-          </div>
-          """
 
-            if structure_html:
-                components.html(structure_html, height=260, scrolling=False)
+        with struct_col:
+            html = render_structure_to_html(structure, width=380, height=240)
+            if html:
+                components.html(html, height=260, scrolling=False)
             else:
                 st.error("Failed to render structure.")
-        
-        with legend_col:
-            # 创建简单的元素颜色图例 - 使用单个HTML块
-            if structure:
-                elements = sorted({str(s.specie) for s in structure.sites})
-                
-                # 构建完整的图例HTML
-                legend_items = ""
-                for el in elements:
-                    c = MP_COLORS.get(el, "#9E9E9E")
-                    legend_items += f"""
-                    <div style="display: flex; align-items: center; margin-bottom: 6px; background-color: #f0f0f0;">
-                        <div style="width: 14px; height: 14px; background: {c}; border: 1px solid #333; border-radius: 3px; margin-right: 8px;"></div>
-                        <span style="font-size: 13px; color: #222; background-color: #f0f0f0;">{el}</span>
-                    </div>
-                    """
-                
-                legend_html = f"""
-                <div style="
-                    background-color: #f0f0f0;
-                    border-radius: 8px;
-                    border: 1px solid #ccc;
-                    padding: 10px 12px;
-                    margin-left: 5px;
-                    height: 220px;
-                    margin: 0;
-                ">
-                    <div style="text-align: center; font-weight: 600; margin-bottom: 10px; font-size: 14px; color: #333; background-color: #f0f0f0;">
-                        Element colors
-                    </div>
-                    {legend_items}
-                </div>
-                """
 
-                components.html(
-                    legend_html,
-                    height=260,
-                    scrolling=False
-               )
+        with legend_col:
+            elements = sorted({str(s.specie) for s in structure.sites})
+
+            legend_items = ""
+            for el in elements:
+                c = MP_COLORS.get(el, "#9E9E9E")
+                legend_items += f"""
+                <div style="display:flex;align-items:center;margin-bottom:6px;">
+                <div style="
+                    width:14px;
+                    height:14px;
+                    background:{c};
+                    border:1px solid #333;
+                    border-radius:3px;
+                    margin-right:8px;
+                "></div>
+                <span style="font-size:13px;color:#222;">{el}</span>
+            </div>
+            """
+
+         legend_html = f"""
+         <div style="
+             background:#f0f0f0;
+             border:1px solid #ccc;
+             border-radius:8px;
+             padding:10px;
+             height:220px;
+        ">
+             <div style="
+                 text-align:center;
+                 font-weight:600;
+                 margin-bottom:8px;
+                 font-size:14px;
+              ">
+                 Element colors
+             </div>
+             {legend_items}
+         </div>
+         """
+
+         components.html(legend_html, height=260, scrolling=False)
+
                 
                 # 一次性显示整个图例
                 st.markdown(legend_html, unsafe_allow_html=True)
@@ -610,5 +592,6 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"Model loading failed: {str(e)}")
+
 
 
