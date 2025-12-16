@@ -432,7 +432,7 @@ def render_structure_with_legend(structure, width=520, height=260):
                 background:{c};
                 border:1px solid #333;
                 border-radius:3px;
-                margin-right:8px;
+                margin-right:6px;
             "></div>
             <span style="font-size:13px;color:#222;">{el}</span>
         </div>
@@ -440,16 +440,27 @@ def render_structure_with_legend(structure, width=520, height=260):
 
     legend_html = f"""
     <div style="
+        margin-top:6px;
+        padding:8px 10px;
         background:#f5f5f5;
         border:1px solid #ccc;
         border-radius:8px;
-        padding:10px;
-        width:120px;
+        display:flex;
+        justify-content:center;
+        flex-wrap:wrap;
+        max-width:360px;
     ">
-        <div style="text-align:center;font-weight:600;margin-bottom:8px;">
+        <div style="width:100%;text-align:center;font-weight:600;margin-bottom:4px;">
             Element colors
         </div>
         {legend_items}
+    </div>
+    """
+
+    return f"""
+    <div style="display:flex;flex-direction:column;align-items:center;">
+        {structure_html}
+        {legend_html}
     </div>
     """
 
@@ -514,47 +525,7 @@ if submit_button:
         else:
             st.error("Failed to render structure.")
 
-        with legend_col:
-            elements = sorted({str(s.specie) for s in structure.sites})
-
-            legend_items = ""
-            for el in elements:
-                c = MP_COLORS.get(el, "#9E9E9E")
-                legend_items += f"""
-                <div style="display:flex;align-items:center;margin-bottom:6px;">
-                <div style="
-                    width:14px;
-                    height:14px;
-                    background:{c};
-                    border:1px solid #333;
-                    border-radius:3px;
-                    margin-right:8px;
-                "></div>
-                <span style="font-size:13px;color:#222;">{el}</span>
-            </div>
-            """
-
-            legend_html = f"""
-            <div style="
-                background:#f0f0f0;
-                border:1px solid #ccc;
-                border-radius:8px;
-                padding:10px;
-                height:220px;
-           ">
-                <div style="
-                    text-align:center;
-                    font-weight:600;
-                    margin-bottom:8px;
-                    font-size:14px;
-                 ">
-                    Element colors
-                </div>
-                {legend_items}
-            </div>
-            """
-
-            components.html(legend_html, height=260, scrolling=False)
+        
 
                 
        
@@ -632,6 +603,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"Model loading failed: {str(e)}")
+
 
 
 
