@@ -440,27 +440,16 @@ def render_structure_with_legend(structure, width=520, height=260):
 
     legend_html = f"""
     <div style="
-        margin-top:6px;
-        padding:8px 10px;
         background:#f5f5f5;
         border:1px solid #ccc;
         border-radius:8px;
-        display:flex;
-        justify-content:center;
-        flex-wrap:wrap;
-        max-width:360px;
+        padding:10px;
+        width:120px;
     ">
-        <div style="width:100%;text-align:center;font-weight:600;margin-bottom:4px;">
+        <div style="text-align:center;font-weight:600;margin-bottom:8px;">
             Element colors
         </div>
         {legend_items}
-    </div>
-    """
-
-    return f"""
-    <div style="display:flex;flex-direction:column;align-items:center;">
-        {structure_html}
-        {legend_html}
     </div>
     """
 
@@ -603,6 +592,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"Model loading failed: {str(e)}")
+
 
 
 
