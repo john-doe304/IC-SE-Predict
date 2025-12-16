@@ -516,8 +516,8 @@ if submit_button:
             components.html(legend_html, height=260, scrolling=False)
 
                 
-                # 一次性显示整个图例
-                st.markdown(legend_html, unsafe_allow_html=True)
+        # 一次性显示整个图例
+        st.markdown(legend_html, unsafe_allow_html=True)
 
         # Features & prediction
         #st.subheader("Extracted Features & Prediction")
@@ -592,6 +592,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"Model loading failed: {str(e)}")
+
 
 
 
