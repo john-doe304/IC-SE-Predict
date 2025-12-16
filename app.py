@@ -581,7 +581,7 @@ if submit_button:
 
                 # 显示预测结果
                 st.write("Prediction Results (Essential Models):")
-                st.markdown(
+                #st.markdown(
                     "**Note:** WeightedEnsemble_L2 is a meta-model combining predictions from other models.")
                 results_df = pd.DataFrame(predictions_dict)
                 st.dataframe(results_df.iloc[:1,:])
@@ -592,6 +592,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"Model loading failed: {str(e)}")
+
 
 
 
