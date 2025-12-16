@@ -493,27 +493,27 @@ if submit_button:
             </div>
             """
 
-         legend_html = f"""
-         <div style="
-             background:#f0f0f0;
-             border:1px solid #ccc;
-             border-radius:8px;
-             padding:10px;
-             height:220px;
-        ">
-             <div style="
-                 text-align:center;
-                 font-weight:600;
-                 margin-bottom:8px;
-                 font-size:14px;
-              ">
-                 Element colors
-             </div>
-             {legend_items}
-         </div>
-         """
+            legend_html = f"""
+            <div style="
+                background:#f0f0f0;
+                border:1px solid #ccc;
+                border-radius:8px;
+                padding:10px;
+                height:220px;
+           ">
+                <div style="
+                    text-align:center;
+                    font-weight:600;
+                    margin-bottom:8px;
+                    font-size:14px;
+                 ">
+                    Element colors
+                </div>
+                {legend_items}
+            </div>
+            """
 
-         components.html(legend_html, height=260, scrolling=False)
+            components.html(legend_html, height=260, scrolling=False)
 
                 
                 # 一次性显示整个图例
@@ -592,6 +592,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"Model loading failed: {str(e)}")
+
 
 
 
