@@ -398,32 +398,75 @@ def structure_to_cif_string(structure):
             pass
 
 # ------------------------------- Render structure to HTML for Streamlit -------------------------------
-def render_structure_to_html(structure, width=380, height=240):
-    if structure is None:
-        return None
-
+def render_structure_with_legend(structure, width=520, height=260):
     cif_str = structure_to_cif_string(structure)
-    if cif_str is None:
+    if not cif_str:
         return None
 
-    view = py3Dmol.view(width=width, height=height)
+    view = py3Dmol.view(width=360, height=height)
     view.addModel(cif_str, "cif")
 
     for i, site in enumerate(structure.sites):
         el = str(site.specie)
         color = MP_COLORS.get(el, "#9E9E9E")
-        view.setStyle(
-            {"index": i},
-            {
-                "sphere": {"radius": 0.45, "color": color},
-                "stick": {"radius": 0.18, "color": color},
-            },
-        )
+        view.setStyle({"index": i}, {
+            "sphere": {"radius": 0.45, "color": color},
+            "stick": {"radius": 0.18, "color": color}
+        })
 
     view.addUnitCell()
     view.zoomTo()
 
-    return view._make_html()
+    structure_html = view._make_html()
+
+    # --- legend ---
+    elements = sorted({str(s.specie) for s in structure.sites})
+    legend_items = ""
+    for el in elements:
+        c = MP_COLORS.get(el, "#9E9E9E")
+        legend_items += f"""
+        <div style="display:flex;align-items:center;margin-bottom:6px;">
+            <div style="
+                width:14px;
+                height:14px;
+                background:{c};
+                border:1px solid #333;
+                border-radius:3px;
+                margin-right:8px;
+            "></div>
+            <span style="font-size:13px;color:#222;">{el}</span>
+        </div>
+        """
+
+    legend_html = f"""
+    <div style="
+        background:#f5f5f5;
+        border:1px solid #ccc;
+        border-radius:8px;
+        padding:10px;
+        width:120px;
+    ">
+        <div style="text-align:center;font-weight:600;margin-bottom:8px;">
+            Element colors
+        </div>
+        {legend_items}
+    </div>
+    """
+
+    # --- flex layout ---
+    final_html = f"""
+    <div style="
+        display:flex;
+        align-items:flex-start;
+        gap:12px;
+        width:{width}px;
+    ">
+        <div>{structure_html}</div>
+        {legend_html}
+    </div>
+    """
+
+    return final_html
 
 
 # ------------------------------- 在主要执行部分更新调用方式 -------------------------------
@@ -464,14 +507,12 @@ if submit_button:
 
         # render and show HTML in Streamlit using components
         st.subheader("Crystal Structure Preview (Unit Cell)")
-        struct_col, legend_col = st.columns([5, 2], gap="small")
+        html = render_structure_with_legend(structure)
 
-        with struct_col:
-            html = render_structure_to_html(structure, width=380, height=240)
-            if html:
-                components.html(html, height=260, scrolling=False)
-            else:
-                st.error("Failed to render structure.")
+        if html:
+            components.html(html, height=280, scrolling=False)
+        else:
+            st.error("Failed to render structure.")
 
         with legend_col:
             elements = sorted({str(s.specie) for s in structure.sites})
@@ -591,6 +632,7 @@ if submit_button:
 
             except Exception as e:
                 st.error(f"Model loading failed: {str(e)}")
+
 
 
 
