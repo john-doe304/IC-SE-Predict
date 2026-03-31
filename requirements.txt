@@ -18,4 +18,4 @@ py3Dmol
 requests
 plotly
 
-setuptools
+setuptools==69.5.1
