@@ -332,10 +332,10 @@ def load_structure_from_mp(formula, api_key):
         return None, "mp-api not installed"
     try:
         with MPRester(api_key) as mpr:
-            # 💡 核心修改：加上 fields 参数，严格限制只下载和验证这两个字段
+            # 💡 终极修改：只请求 structure，连 material_id 也抛弃，彻底避开 Pydantic 审查
             results = mpr.summary.search(
                 formula=formula, 
-                fields=["material_id", "structure"]
+                fields=["structure"]
             )
             
             if not results:
@@ -348,8 +348,8 @@ def load_structure_from_mp(formula, api_key):
             except Exception:
                 struct = doc.structure
 
-            # 保险起见，将 material_id 强制转换为字符串
-            return struct, str(doc.material_id) 
+            # 因为没有下载 material_id，这里直接返回一个通用的成功提示字符串
+            return struct, "Successfully loaded from MP" 
             
     except Exception as e:
         return None, f"MP error: {e}"
