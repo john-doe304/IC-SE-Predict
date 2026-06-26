@@ -499,6 +499,8 @@ if submit_button:
                 mp_msg = "MP key not provided or mp-api not installed."
 
         # fallback to placeholder if needed
+        if mp_msg and not mp_msg.startswith("Loaded from Materials Project"):
+            st.warning(f"⚠️ Structure Warning: {mp_msg}")
         if structure is None:
             structure = generate_placeholder_structure(formula_input)
             if structure is None:
