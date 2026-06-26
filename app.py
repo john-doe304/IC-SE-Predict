@@ -352,7 +352,7 @@ def load_structure_from_mp(formula, api_key):
             return struct, str(doc.material_id) 
             
     except Exception as e:
-        return None, f"MP error: {e}""
+        return None, f"MP error: {e}"
 
 
 # ------------------------------- Placeholder cell generator -------------------------------
