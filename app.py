@@ -332,7 +332,12 @@ def load_structure_from_mp(formula, api_key):
         return None, "mp-api not installed"
     try:
         with MPRester(api_key) as mpr:
-            results = mpr.summary.search(formula=formula)
+            # 💡 核心修改：加上 fields 参数，严格限制只下载和验证这两个字段
+            results = mpr.summary.search(
+                formula=formula, 
+                fields=["material_id", "structure"]
+            )
+            
             if not results:
                 return None, "No MP entry found"
             doc = results[0]
@@ -343,9 +348,11 @@ def load_structure_from_mp(formula, api_key):
             except Exception:
                 struct = doc.structure
 
-            return struct, doc.material_id
+            # 保险起见，将 material_id 强制转换为字符串
+            return struct, str(doc.material_id) 
+            
     except Exception as e:
-        return None, f"MP error: {e}"
+        return None, f"MP error: {e}""
 
 
 # ------------------------------- Placeholder cell generator -------------------------------
