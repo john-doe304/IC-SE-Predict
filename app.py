@@ -1,5 +1,5 @@
 # -----------------------------------------------------------
-#   Solid Electrolyte Ionic Conductivity Predictor (Final)
+#   Solid Electrolyte Ionic Conductivity Predictor (Final Fixed)
 #   With Materials Project Crystal Rendering + Fallback Cell
 # -----------------------------------------------------------
 
@@ -24,7 +24,6 @@ try:
     from rdkit.Chem.Draw import MolDraw2DSVG
     from rdkit.ML.Descriptors import MoleculeDescriptors
 except Exception:
-    # rdkit optional; warn at runtime if missing when used
     rdkit = None
 
 try:
@@ -182,51 +181,27 @@ def load_predictor():
 
 def mol_to_image(mol, size=(200, 200)):
     """将分子转换为背景颜色为 #f9f9f9f9 的SVG图像"""
-    # 创建绘图对象
     d2d = MolDraw2DSVG(size[0], size[1])
-    
-    # 获取绘图选项
     draw_options = d2d.drawOptions()
-    
-    # 设置背景颜色为 #f9f9f9f9
     draw_options.background = '#f9f9f9'
-    
-    # 移除所有边框和填充
     draw_options.padding = 0.0
     draw_options.additionalBondPadding = 0.0
-    
-    # 移除原子标签的边框
     draw_options.annotationFontScale = 1.0
     draw_options.addAtomIndices = False
     draw_options.addStereoAnnotation = False
     draw_options.bondLineWidth = 1.5
-    
-    # 禁用所有边框
     draw_options.includeMetadata = False
-    
-    # 绘制分子
     d2d.DrawMolecule(mol)
     d2d.FinishDrawing()
-    
-    # 获取SVG内容
     svg = d2d.GetDrawingText()
-    
-    # 移除SVG中所有可能存在的边框元素
-    # 1. 移除黑色边框矩形
     svg = re.sub(r'<rect [^>]*stroke:black[^>]*>', '', svg, flags=re.DOTALL)
     svg = re.sub(r'<rect [^>]*stroke:#000000[^>]*>', '', svg, flags=re.DOTALL)
-    
-    # 2. 移除所有空的rect元素
     svg = re.sub(r'<rect[^>]*/>', '', svg, flags=re.DOTALL)
-    
-    # 3. 确保viewBox正确设置
     if 'viewBox' in svg:
-        # 设置新的viewBox以移除边距
         svg = re.sub(r'viewBox="[^"]+"', f'viewBox="0 0 {size[0]} {size[1]}"', svg)
-    
     return svg
 
-# 材料特征计算函数
+# 材料特征计算函数（已加入氧化态转换容错保护）
 def calculate_material_features(formula):
     """计算材料的组成特征"""
     try:
@@ -256,11 +231,15 @@ def calculate_material_features(formula):
         sto = Stoichiometry()
         df = sto.featurize_dataframe(df, 'composition', ignore_errors=True)
 
-        # 离子特征
-        cto = CompositionToOxidComposition()
-        df = cto.featurize_dataframe(df, 'composition_oxid', ignore_errors=True)
-        ion = IonProperty()
-        df = ion.featurize_dataframe(df, 'composition_oxid', ignore_errors=True)
+        # 离子特征（加异常保护，防止部分化学式无法分配氧化态而报错）
+        try:
+            cto = CompositionToOxidComposition()
+            df = cto.featurize_dataframe(df, 'composition_oxid', ignore_errors=True)
+            if 'composition_oxid' in df.columns:
+                ion = IonProperty()
+                df = ion.featurize_dataframe(df, 'composition_oxid', ignore_errors=True)
+        except Exception:
+            pass
 
         # 数值特征提取
         numeric_columns = df.select_dtypes(include=[np.number]).columns
@@ -280,21 +259,15 @@ def calculate_material_features(formula):
 def filter_selected_features(features_dict, selected_descriptors, temperature):
     """只显示选定的七个特征"""
     filtered_features = {}
-    
-    # 添加温度特征
     filtered_features['Temp'] = float(temperature)
     
-    # 添加选定的七个特征
     for feature_name in selected_descriptors:
         if feature_name == 'Temp':
             continue
-        
         if feature_name in features_dict:
             filtered_features[feature_name] = features_dict[feature_name]
         else:
-            # 如果特征不存在，设为0
             filtered_features[feature_name] = 0.0
-    
     return filtered_features
 
 # 自动匹配模型特征
@@ -320,7 +293,6 @@ def align_features_with_model(features_dict, predictor, temperature, formula):
             aligned[feat] = temperature
         elif f_low in ['formula']:
             aligned[feat] = formula
-      
         else:
             aligned[feat] = 0.0
 
@@ -332,35 +304,27 @@ def load_structure_from_mp(formula, api_key):
         return None, "mp-api not installed"
     try:
         with MPRester(api_key) as mpr:
-            # 💡 终极修改：只请求 structure，连 material_id 也抛弃，彻底避开 Pydantic 审查
             results = mpr.summary.search(
                 formula=formula, 
                 fields=["structure"]
             )
-            
             if not results:
                 return None, "No MP entry found"
             doc = results[0]
-
             try:
-                # *** 强制单胞 ***
                 struct = doc.structure.get_primitive_structure()
             except Exception:
                 struct = doc.structure
-
-            # 因为没有下载 material_id，这里直接返回一个通用的成功提示字符串
             return struct, "Successfully loaded from MP" 
-            
     except Exception as e:
         return None, f"MP error: {e}"
-
 
 # ------------------------------- Placeholder cell generator -------------------------------
 def generate_placeholder_structure(formula):
     elems = re.findall(r"[A-Z][a-z]?", formula or "")
     elems = list(dict.fromkeys(elems))
     if len(elems) == 0:
-        elems = ["Li", "O"]  # fallback
+        elems = ["Li", "O"]
     coords = []
     n = len(elems)
     for i in range(n):
@@ -374,7 +338,6 @@ def generate_placeholder_structure(formula):
 
 # ------------------------------- Structure -> CIF string (robust) -------------------------------
 def structure_to_cif_string(structure):
-    """Write structure to temp CIF and read string back — robust across pymatgen versions."""
     if CifWriter is None:
         st.warning("pymatgen.io.cif.CifWriter not available.")
         return None
@@ -382,22 +345,17 @@ def structure_to_cif_string(structure):
     try:
         with tempfile.NamedTemporaryFile(suffix=".cif", delete=False) as tmp:
             fname = tmp.name
-        # write
         try:
             CifWriter(structure).write_file(fname)
         except Exception as e:
-            # older/newer api differences — try alternate approach
             try:
-                # If structure has to() with filename accepted
                 structure.to(filename=fname)
             except Exception:
                 raise e
-        # read back
         with open(fname, "r", encoding="utf-8") as f:
             cif_str = f.read()
         return cif_str
     finally:
-        # cleanup
         try:
             if tmp is not None:
                 os.unlink(tmp.name)
@@ -423,10 +381,8 @@ def render_structure_with_legend(structure, width=520, height=260):
 
     view.addUnitCell()
     view.zoomTo()
-
     structure_html = view._make_html()
 
-    # --- legend ---
     elements = sorted({str(s.specie) for s in structure.sites})
     legend_items = ""
     for el in elements:
@@ -460,7 +416,6 @@ def render_structure_with_legend(structure, width=520, height=260):
     </div>
     """
 
-    # --- flex layout ---
     final_html = f"""
     <div style="
         display:flex;
@@ -472,7 +427,6 @@ def render_structure_with_legend(structure, width=520, height=260):
         {legend_html}
     </div>
     """
-
     return final_html
 
 
@@ -483,7 +437,6 @@ if submit_button:
         st.stop()
 
     with st.spinner("Processing..."):
-        # decide structure source
         structure = None
         mp_id = None
         mp_msg = ""
@@ -505,7 +458,6 @@ if submit_button:
             else:
                 mp_msg = "MP key not provided or mp-api not installed."
 
-        # fallback to placeholder if needed
         if mp_msg and not mp_msg.startswith("Loaded from Materials Project"):
             st.warning(f"⚠️ Structure Warning: {mp_msg}")
         if structure is None:
@@ -514,7 +466,6 @@ if submit_button:
                 st.error("Could not generate any structure (pymatgen missing).")
                 st.stop()
 
-        # render and show HTML in Streamlit using components
         st.subheader("Crystal Structure Preview (Unit Cell)")
         html = render_structure_with_legend(structure)
 
@@ -523,19 +474,7 @@ if submit_button:
         else:
             st.error("Failed to render structure.")
 
-        
-
-            
-                
-
-        # Features & prediction
-        #st.subheader("Extracted Features & Prediction")
-
-        # 计算材料特征
         features = calculate_material_features(formula_input)
-        #st.write(f"✅ Total features extracted: {len(features)}")
-                
-        # 只显示选定的七个特征
         selected_features = filter_selected_features(features, required_descriptors, temperature)
         feature_df = pd.DataFrame([selected_features])
                 
@@ -543,14 +482,11 @@ if submit_button:
         st.dataframe(feature_df)
             
         if features:
-            # 创建输入数据
             input_data = {
                 "Formula": [formula_input],
-                        
                 "Temp": [temperature],
                }
                     
-            # 添加数值特征
             numeric_features = {}
             for feature_name in required_descriptors:
                 if feature_name == 'Temp':
@@ -558,18 +494,14 @@ if submit_button:
                 elif feature_name in features:
                     numeric_features[feature_name] = [features[feature_name]]
                 else:
-                    numeric_features[feature_name] = [0.0]  # 默认值
+                    numeric_features[feature_name] = [0.0]
                         
             input_data.update(numeric_features)
-                    
             input_df = pd.DataFrame(input_data)
                 
-            # 加载模型并预测
             try:
-                # 使用缓存的模型加载方式
                 predictor = load_predictor()
-                    
-                # 只使用最关键的模型进行预测，减少内存占用
+                
                 essential_models = ['CatBoost',
                                     'ExtraTreesMSE',
                                     'LightGBM',
@@ -588,15 +520,9 @@ if submit_button:
                         st.warning(f"Model {model} prediction failed: {str(model_error)}")
                         predictions_dict[model] = "Error"
 
-                # 显示预测结果
                 st.write("Prediction Results (Essential Models):")
-                #st.markdown("**Note:** WeightedEnsemble_L2 is a meta-model combining predictions from other models.")
                 results_df = pd.DataFrame(predictions_dict)
                 st.dataframe(results_df.iloc[:1,:])
-
-               # 主动释放内存
-               #del predictor
-               #gc.collect()
 
             except Exception as e:
                 st.error(f"Model loading failed: {str(e)}")
