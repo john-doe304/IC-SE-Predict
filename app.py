@@ -1,6 +1,6 @@
 # -----------------------------------------------------------
-#   Solid Electrolyte Ionic Conductivity Predictor (Final Version)
-#   With Precise Weighted Ensemble Disagreement Calculation
+#   Solid Electrolyte Ionic Conductivity Predictor (Final Perfection)
+#   With Detailed D_ens Disagreement Indicator & Tooltips
 # -----------------------------------------------------------
 
 import base64
@@ -543,7 +543,7 @@ if submit_button:
             "CatBoost": 0.56,
             "ExtraTreesMSE": 0.28,
             "LightGBM": 0.08,
-            "KNeighborsDist": 0.04,  # KNeighborsDist 仍参与加权标准差计算
+            "KNeighborsDist": 0.04,  # 仍参与加权标准差计算
             "XGBoost": 0.04,
         }
 
@@ -561,8 +561,7 @@ if submit_button:
             predictor.predict(input_df, model="WeightedEnsemble_L2").iloc[0]
         )
 
-        # 【核心改进】：根据公式计算 5 个基模型的加权标准差 (Ensemble Prediction Disagreement)
-        # Formula: D_ens = sqrt( sum( w_i * (y_i - y_ens)^2 ) )
+        # 计算 5 个基模型的加权标准差 (Ensemble Prediction Disagreement)
         weighted_sq_diff_sum = 0.0
         total_valid_weight = 0.0
 
@@ -573,12 +572,11 @@ if submit_button:
             total_valid_weight += w_i
 
         if total_valid_weight > 0:
-          # 归一化权重计算精确的加权标准差
           d_ens = np.sqrt(weighted_sq_diff_sum / total_valid_weight)
         else:
           d_ens = 0.0
 
-        # 构建前端表格：只显示 4 个高质量基模型 + WeightedEnsemble_L2 (KNeighborsDist 不单独列出)
+        # 构建前端表格：只显示 4 个高质量基模型 + WeightedEnsemble_L2
         display_models = [
             "WeightedEnsemble_L2",
             "CatBoost",
@@ -597,24 +595,26 @@ if submit_button:
         results_df = pd.DataFrame(display_dict)
         st.dataframe(results_df)
 
-        # 展现严格符合 ChatGPT 建议的 Ensemble Prediction Disagreement 面板
+        # 【完美对齐建议】：更新 UI 展示（含明确单位、包含 5 个基模型说明及简洁的问号提示）
         st.markdown("---")
         st.subheader("Ensemble Prediction Disagreement")
         st.metric(
-            label="Disagreement Indicator (D_ens)",
+            label="Disagreement Indicator (D_ens, log units)",
             value=f"{d_ens:.4f}",
             help=(
-                "Weighted standard deviation across the 5 constituent base"
-                " models."
+                "This value measures the disagreement among the base models. It"
+                " should not be interpreted as the expected prediction error."
             ),
         )
 
         st.info(
-            "ℹ️ **Weighted standard deviation of the five base-model"
-            " predictions.**\n\n"
+            "ℹ️ **Weighted standard deviation of all five base-model"
+            " predictions in WeightedEnsemble_L2** (including KNeighborsDist,"
+            " which is not displayed separately in the table above).\n\n"
             "A larger value indicates greater disagreement among the base"
-            " models. This indicator quantifies model disagreement and is **not"
-            " a calibrated prediction interval** or direct prediction error."
+            " models. This indicator reflects inter-model prediction"
+            " dispersion and is **not a calibrated prediction interval** or"
+            " direct estimate of prediction error."
         )
 
       except Exception as e:
