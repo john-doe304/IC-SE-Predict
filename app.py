@@ -547,10 +547,10 @@ if submit_button:
 
         # 【核心修改点 1】：去掉了 KNeighborsDist 模型，仅保留 5 个高性能核心模型
         essential_models = [
-            "CatBoost",
+          "WeightedEnsemble_L2",  
+          "CatBoost",
             "ExtraTreesMSE",
             "LightGBM",
-            "WeightedEnsemble_L2",
             "XGBoost",
         ]
 
