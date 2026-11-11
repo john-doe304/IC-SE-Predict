@@ -1,6 +1,6 @@
 # -----------------------------------------------------------
-#   Solid Electrolyte Ionic Conductivity Predictor (Revised with Uncertainty)
-#   With Materials Project Crystal Rendering + Fallback Cell
+#   Solid Electrolyte Ionic Conductivity Predictor (Final Version)
+#   With Precise Weighted Ensemble Disagreement Calculation
 # -----------------------------------------------------------
 
 import base64
@@ -20,7 +20,7 @@ import streamlit.components.v1 as components
 # rdkit, mordred, autogluon, matminer may be heavy — import guarded
 try:
   from rdkit import Chem
-  from rdkit.Chem import Descriptors, Draw, AllChem
+  from rdkit.Chem import AllChem, Descriptors, Draw
   from rdkit.Chem.Draw import MolDraw2DSVG
   from rdkit.ML.Descriptors import MoleculeDescriptors
 except Exception:
@@ -70,7 +70,7 @@ except Exception:
 st.set_page_config(layout="wide", page_title="Ionic Conductivity Predictor")
 
 # ----------------------------------
-# MP 官方配色（可扩充）
+# MP 官方配色
 # ----------------------------------
 MP_COLORS = {
     "H": "#FFFFFF",
@@ -165,7 +165,7 @@ MP_COLORS = {
     "Pu": "#006BFF",
 }
 
-# 添加 CSS 样式
+# CSS 样式
 st.markdown(
     """
     <style>
@@ -214,20 +214,19 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# 页面标题和简介
+# 页面标题
 st.markdown(
     """
     <div class='rounded-container'>
         <h2 style="font-size:24px;"> Predict Ionic Conductivity of Solid Electrolytes</h2>
         <blockquote>
             1. This web app predicts ionic conductivity of solid electrolytes based on material composition features.<br>
-             2. Enter a valid chemical formula string below to get the predicted result. (Note: Restricted to inorganic crystalline solid electrolytes).
+            2. Enter a valid chemical formula string below to get the predicted result. (Note: Restricted to inorganic crystalline solid electrolytes).
         </blockquote>
     </div>
     """,
     unsafe_allow_html=True,
 )
-
 
 # -------------------- Inputs --------------------
 col1, col2 = st.columns([2, 1])
@@ -249,7 +248,6 @@ with col2:
   )
   st.markdown("If MP key left empty, app will use placeholder cell.")
 
-# 指定的描述符列表 - 七个特征
 required_descriptors = [
     "MagpieData mean CovalentRadius",
     "Temp",
@@ -263,14 +261,10 @@ required_descriptors = [
 
 @st.cache_resource(show_spinner=False, max_entries=1)
 def load_predictor():
-  """缓存模型加载，避免重复加载导致内存溢出"""
-  # 请确保此处的模型文件夹名称与你实际训练后保存的文件夹一致
   return TabularPredictor.load("./ag-20251024_075719")
 
 
-# 材料特征计算函数
 def calculate_material_features(formula):
-  """计算材料的组成特征"""
   try:
     from matminer.featurizers.composition import (
         ElementProperty,
@@ -336,7 +330,6 @@ def filter_selected_features(features_dict, selected_descriptors, temperature):
   return filtered_features
 
 
-# ------------------------------- MP structure loader -------------------------------
 def load_structure_from_mp(formula, api_key):
   if MPRester is None:
     return None, "mp-api not installed"
@@ -469,7 +462,7 @@ def render_structure_with_legend(structure, width=520, height=260):
   return final_html
 
 
-# ------------------------------- 主要执行部分 -------------------------------
+# ------------------------------- 主要执行逻辑 -------------------------------
 if submit_button:
   if not formula_input:
     st.error("Please enter a formula.")
@@ -545,46 +538,84 @@ if submit_button:
       try:
         predictor = load_predictor()
 
-        # 【核心修改点 1】：去掉了 KNeighborsDist 模型，仅保留 5 个高性能核心模型
-        essential_models = [
-          "WeightedEnsemble_L2",  
-          "CatBoost",
+        # 定义 5 个基础模型及其在 WeightedEnsemble_L2 中对应的精确权重
+        base_model_weights = {
+            "CatBoost": 0.56,
+            "ExtraTreesMSE": 0.28,
+            "LightGBM": 0.08,
+            "KNeighborsDist": 0.04,  # KNeighborsDist 仍参与加权标准差计算
+            "XGBoost": 0.04,
+        }
+
+        # 获取所有 5 个基模型的预测值
+        all_base_preds = {}
+        for m_name in base_model_weights.keys():
+          try:
+            pred_val = float(predictor.predict(input_df, model=m_name).iloc[0])
+            all_base_preds[m_name] = pred_val
+          except Exception:
+            all_base_preds[m_name] = np.nan
+
+        # 获取 WeightedEnsemble_L2 的主预测值
+        ens_pred = float(
+            predictor.predict(input_df, model="WeightedEnsemble_L2").iloc[0]
+        )
+
+        # 【核心改进】：根据公式计算 5 个基模型的加权标准差 (Ensemble Prediction Disagreement)
+        # Formula: D_ens = sqrt( sum( w_i * (y_i - y_ens)^2 ) )
+        weighted_sq_diff_sum = 0.0
+        total_valid_weight = 0.0
+
+        for m_name, w_i in base_model_weights.items():
+          y_i = all_base_preds[m_name]
+          if not np.isnan(y_i):
+            weighted_sq_diff_sum += w_i * ((y_i - ens_pred) ** 2)
+            total_valid_weight += w_i
+
+        if total_valid_weight > 0:
+          # 归一化权重计算精确的加权标准差
+          d_ens = np.sqrt(weighted_sq_diff_sum / total_valid_weight)
+        else:
+          d_ens = 0.0
+
+        # 构建前端表格：只显示 4 个高质量基模型 + WeightedEnsemble_L2 (KNeighborsDist 不单独列出)
+        display_models = [
+            "WeightedEnsemble_L2",
+            "CatBoost",
             "ExtraTreesMSE",
             "LightGBM",
             "XGBoost",
         ]
-
-        predict_df = input_df.copy()
-        predictions_dict = {}
-        base_preds = []
-
-        for model in essential_models:
-          try:
-            predictions = predictor.predict(predict_df, model=model)
-            val = float(predictions.iloc[0])
-            predictions_dict[model] = [val]
-            if model != "WeightedEnsemble_L2":
-              base_preds.append(val)
-          except Exception as model_error:
-            st.warning(f"Model {model} prediction failed: {str(model_error)}")
-            predictions_dict[model] = ["Error"]
+        display_dict = {}
+        for m_name in display_models:
+          if m_name == "WeightedEnsemble_L2":
+            display_dict[m_name] = [ens_pred]
+          else:
+            display_dict[m_name] = [all_base_preds[m_name]]
 
         st.write("Prediction Results (Essential Models):")
-        results_df = pd.DataFrame(predictions_dict)
+        results_df = pd.DataFrame(display_dict)
         st.dataframe(results_df)
 
-        # 【核心修改点 2】：增加预测不确定性指标（计算基模型输出的离散度/标准差）
-        if base_preds:
-          uncertainty_std = np.std(base_preds)
-          st.info(
-              f"📊 **Prediction Uncertainty Indicator (Base-Learner Disagreement):**"
-              f" **{uncertainty_std:.4f}** (Std. Dev.)\n\n"
-              "*Note: This value quantifies the dispersion among the constituent"
-              " base models (CatBoost, ExtraTreesMSE, LightGBM, and"
-              " XGBoost). A higher disagreement indicates that the queried"
-              " composition approaches the boundaries of the model's"
-              " applicability domain and should be interpreted with caution.*"
-          )
+        # 展现严格符合 ChatGPT 建议的 Ensemble Prediction Disagreement 面板
+        st.markdown("---")
+        st.subheader("Ensemble Prediction Disagreement")
+        st.metric(
+            label="Disagreement Indicator (D_ens)",
+            value=f"{d_ens:.4f}",
+            help=(
+                "Weighted standard deviation across the 5 constituent base"
+                " models."
+            ),
+        )
+
+        st.info(
+            "ℹ️ **Weighted standard deviation of the five base-model"
+            " predictions.**\n\n"
+            "A larger value indicates greater disagreement among the base"
+            " models. This indicator quantifies model disagreement and is **not"
+            " a calibrated prediction interval** or direct prediction error."
+        )
 
       except Exception as e:
         st.error(f"Model loading failed: {str(e)}")
