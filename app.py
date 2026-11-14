@@ -1,65 +1,72 @@
 # -----------------------------------------------------------
-#   Solid Electrolyte Ionic Conductivity Predictor (Final Perfection)
-#   With Detailed D_ens Disagreement Indicator & Tooltips
+# Solid Electrolyte Ionic Conductivity Predictor
+# Optimized Streamlit application
 # -----------------------------------------------------------
 
-import streamlit as st
-import streamlit.components.v1 as components
-import pandas as pd
-import numpy as np
-import py3Dmol
-import traceback
-import gc
+import os
 import re
 import tempfile
-import os
-import random
-from io import BytesIO
-import base64
 
-# rdkit, mordred, autogluon, matminer may be heavy — import guarded
+import numpy as np
+import pandas as pd
+import streamlit as st
+import streamlit.components.v1 as components
+
+# Optional structure-visualization dependencies.
 try:
-    from rdkit import Chem
-    from rdkit.Chem import Descriptors, Draw, AllChem
-    from rdkit.Chem.Draw import MolDraw2DSVG
-    from rdkit.ML.Descriptors import MoleculeDescriptors
+    import py3Dmol
 except Exception:
-    rdkit = None
+    py3Dmol = None
 
-try:
-    from mordred import Calculator, descriptors
-except Exception:
-    pass
-
-try:
-    from autogluon.tabular import TabularPredictor
-except Exception:
-    TabularPredictor = None
-
-# matminer descriptors (guarded import)
-try:
-    from matminer.featurizers.composition import ElementProperty, Meredig, Stoichiometry, IonProperty
-    from matminer.featurizers.conversions import StrToComposition, CompositionToOxidComposition
-except Exception:
-    ElementProperty = Meredig = Stoichiometry = IonProperty = StrToComposition = CompositionToOxidComposition = None
-
-# Materials Project (mp-api) and pymatgen
 try:
     from mp_api.client import MPRester
 except Exception:
     MPRester = None
 
 try:
-    from pymatgen.core import Structure, Lattice
+    from pymatgen.core import Composition, Structure, Lattice
     from pymatgen.io.cif import CifWriter
 except Exception:
-    Structure = Lattice = CifWriter = None
+    Composition = Structure = Lattice = CifWriter = None
 
-st.set_page_config(layout="wide", page_title="Ionic Conductivity Predictor")
+try:
+    from autogluon.tabular import TabularPredictor
+except Exception:
+    TabularPredictor = None
 
-# ----------------------------------
-# MP 官方配色
-# ----------------------------------
+try:
+    from matminer.featurizers.composition import ElementProperty, Stoichiometry
+except Exception:
+    ElementProperty = Stoichiometry = None
+
+
+st.set_page_config(
+    page_title="Ionic Conductivity Predictor",
+    page_icon="🔋",
+    layout="wide",
+)
+
+MODEL_PATH = "./ag-20251024_075719"
+MODEL_NAMES = [
+    "CatBoost",
+    "ExtraTreesMSE",
+    "LightGBM",
+    "KNeighborsDist",
+    "WeightedEnsemble_L2",
+    "XGBoost",
+]
+
+# Keep the feature names identical to those used when training the model.
+REQUIRED_DESCRIPTORS = [
+    "MagpieData mean CovalentRadius",
+    "Temp",
+    "MagpieData avg_dev SpaceGroupNumber",
+    "0-norm",
+    "MagpieData mean MeltingT",
+    "MagpieData avg_dev Column",
+    "MagpieData mean NValence",
+]
+
 MP_COLORS = {
     "H": "#FFFFFF", "Li": "#CC80FF", "Be": "#C2FF00", "B": "#FFB5B5", "C": "#909090",
     "N": "#3050F8", "O": "#FF0D0D", "F": "#90E050", "Na": "#AB5CF2", "Mg": "#8AFF00",
@@ -78,75 +85,12 @@ MP_COLORS = {
     "Re": "#267DAB", "Os": "#266696", "Ir": "#175487", "Pt": "#D0D0E0", "Au": "#FFD123",
     "Hg": "#B8B8D0", "Tl": "#A6544D", "Pb": "#575961", "Bi": "#9E4FB5", "Po": "#AB5C00",
     "At": "#754F45", "Rn": "#428296", "Fr": "#420066", "Ra": "#00C900", "Ac": "#70ABFA",
-    "Th": "#00BAFF", "Pa": "#00A1FF", "U": "#008FFF", "Np": "#0080FF", "Pu": "#006BFF"
+    "Th": "#00BAFF", "Pa": "#00A1FF", "U": "#008FFF", "Np": "#0080FF", "Pu": "#006BFF",
 }
 
-# CSS 样式
+
 st.markdown(
     """
     <style>
-    .stApp {
-        border: 2px solid #808080;
-        border-radius: 20px;
-        margin: 50px auto;
-        max-width: 45%;
-        background-color: #f9f9f9f9;
-        padding: 20px;
-        box-sizing: border-box;
-    }
-    .rounded-container h2 {
-        margin-top: -80px;
-        text-align: center;
-        background-color: #e0e0e0e0;
-        padding: 10px;
-        border-radius: 10px;
-    }
-    .rounded-container blockquote {
-        text-align: left;
-        margin: 20px auto;
-        background-color: #f0f0f0;
-        padding: 10px;
-        font-size: 1.1em;
-        border-radius: 10px;
-    }
-    .stMetric {
-        font-size: 0.9em;
-    }
-    .stWrite {
-        font-size: 0.9em;
-    }
-    h3 {
-        font-size: 1.2em;
-        margin-bottom: 0.5em;
-    }
-    .dataframe {
-        font-size: 0.8em;
-    }
-    div[data-testid="column"] {
-        padding: 0px !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-# 页面标题
-st.markdown(
-    """
-    <div class='rounded-container'>
-        <h2 style="font-size:24px;"> Predict Ionic Conductivity of Solid Electrolytes</h2>
-        <blockquote>
-            1. This web app predicts ionic conductivity of solid electrolytes based on material composition features.<br>
-            2. Enter a valid chemical formula string below to get the predicted result. (Note: Restricted to inorganic crystalline solid electrolytes).
-        </blockquote>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-# -------------------- Inputs --------------------
-col1, col2 = st.columns([2, 1])
-with col1:
-    formula_input = st.text_input("Enter Chemical Formula:", placeholder="e.g., Li7La3Zr2O12")
-    temperature = st.number_input("Temperature (K):", min_value=200, max_value=1000, value=298, step=1)
-    submit_button =
+    .block-container {
+        max-width: 1200px;
